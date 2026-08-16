@@ -1,5 +1,5 @@
-
-
+from app.api.sessions import router as sessions_router
+from app.api.projects import router as projects_router
 from fastapi import FastAPI
 from sqlalchemy import text
 from app.auth.router import router as auth_router
@@ -13,6 +13,8 @@ app = FastAPI(
     version="1.0.0",
 )
 app.include_router(auth_router)
+app.include_router(projects_router)
+app.include_router(sessions_router)
 Base.metadata.create_all(bind=engine)
 
 @app.get("/")
