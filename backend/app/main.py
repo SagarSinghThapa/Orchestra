@@ -1,15 +1,19 @@
+
+
 from fastapi import FastAPI
 from sqlalchemy import text
-
+from app.auth.router import router as auth_router
+from app.database.base import Base
 from app.database.connection import engine
-
+from app.models.user import User
 
 app = FastAPI(
     title="Multi-Agent AI Research System",
     description="Platform Core API - Member 2",
     version="1.0.0",
 )
-
+app.include_router(auth_router)
+Base.metadata.create_all(bind=engine)
 
 @app.get("/")
 def root():
