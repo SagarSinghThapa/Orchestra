@@ -6,7 +6,7 @@ from app.auth.router import router as auth_router
 from app.database.base import Base
 from app.database.connection import engine
 from app.models.user import User
-
+from app.api.messages import router as messages_router
 app = FastAPI(
     title="Multi-Agent AI Research System",
     description="Platform Core API - Member 2",
@@ -15,6 +15,7 @@ app = FastAPI(
 app.include_router(auth_router)
 app.include_router(projects_router)
 app.include_router(sessions_router)
+app.include_router(messages_router)
 Base.metadata.create_all(bind=engine)
 
 @app.get("/")
