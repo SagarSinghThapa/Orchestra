@@ -30,8 +30,8 @@ export default function RepositoryIntelPage() {
       setTraceId(response.trace_id);
       setResult(response.output_payload.result);
       setStatus(response.output_payload.status);
-    } catch (e: any) {
-      setError(e.message);
+    } catch (e: unknown) {
+      setError((e as Error).message);
       setStatus('error');
     }
   };
@@ -67,10 +67,10 @@ export default function RepositoryIntelPage() {
           <Card>
             <h2 className="text-xl font-bold mb-4">Metadata</h2>
             <ul className="space-y-2">
-              <li><strong>Architecture:</strong> {result.architecture?.inferred || "Unknown"}</li>
+              <li><strong>Architecture:</strong> {(result.architecture?.inferred as string) || "Unknown"}</li>
               <li><strong>Languages:</strong> {result.languages.join(", ")}</li>
               <li><strong>Frameworks:</strong> {result.frameworks.join(", ")}</li>
-              <li><strong>Test Coverage:</strong> {result.tests?.coverage || "N/A"}</li>
+              <li><strong>Test Coverage:</strong> {(result.tests?.coverage as string) || "N/A"}</li>
             </ul>
           </Card>
           

@@ -1,3 +1,4 @@
+import re
 from typing import Any, Dict, List
 
 from app.developer.agents.base import BaseAgent
@@ -20,36 +21,63 @@ class DocumentationAgent(BaseAgent):
             return None
         return res.result
 
+    def _sanitize_text(self, text: str) -> str:
+        """Neutralizes prompt injection keywords and removes control characters."""
+        if not isinstance(text, str):
+            return str(text)
+        # Strip ASCII control characters except newline and tab
+        clean = "".join(ch for ch in text if ch in ('\n', '\t') or (ord(ch) >= 32 and ord(ch) != 127))
+        # Mask common prompt injection phrases
+        injection_phrases = [
+            "ignore previous instructions",
+            "ignore all previous instructions",
+            "disregard previous instructions",
+            "system prompt",
+            "[inst]",
+            "[/inst]",
+            "<|im_start|>",
+            "<|im_end|>"
+        ]
+        for phrase in injection_phrases:
+            if phrase in clean.lower():
+                pattern = re.compile(re.escape(phrase), re.IGNORECASE)
+                clean = pattern.sub(f"[FILTERED_INJECTION: {phrase}]", clean)
+        return clean
+
     def _generate_markdown(self, doc_type: str, context: Dict[str, Any]) -> str:
         """
         Deterministically builds markdown based ONLY on verified repository context.
         Prevents hallucinating endpoints or deps by falling back to 'Unknown'.
         """
         lines = []
+        clean_doc_type = self._sanitize_text(doc_type)
+
         if doc_type == "repository_summary" or doc_type == "README":
-            lines.append(f"# {doc_type.upper()}")
+            lines.append(f"# {clean_doc_type.upper()}")
             lines.append("")
             
-            # Use deterministic context
-            langs = context.get("languages", [])
+            # Use deterministic context with sanitization
+            langs = [self._sanitize_text(l) for l in context.get("languages", [])]
             lines.append(f"**Languages:** {', '.join(langs) if langs else 'Unknown'}")
             
-            deps = context.get("dependencies", [])
+            deps = [self._sanitize_text(d) for d in context.get("dependencies", [])]
             lines.append(f"**Dependencies:** {', '.join(deps) if deps else 'Unknown'}")
             
-            eps = context.get("entry_points", [])
+            eps = [self._sanitize_text(e) for e in context.get("entry_points", [])]
             lines.append(f"**Entry Points:** {', '.join(eps) if eps else 'Unknown'}")
             
         elif doc_type == "architecture":
             lines.append("# Architecture Details")
             arch = context.get("architecture", {})
-            lines.append(str(arch.get("inferred", "Unknown Architecture Pattern")))
+            inferred = self._sanitize_text(str(arch.get("inferred", "Unknown Architecture Pattern")))
+            lines.append(inferred)
             
         else:
-            lines.append(f"# {doc_type}")
+            lines.append(f"# {clean_doc_type}")
             lines.append("Content generated from repository context.")
             
         return "\n".join(lines)
+
 
     async def execute(self, params: Dict[str, Any], trace_id: str) -> Dict[str, Any]:
         """

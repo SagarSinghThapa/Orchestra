@@ -24,14 +24,28 @@ export default function EvaluationsPage() {
     try {
       const data = await api.get("/evaluations/summary");
       setSummary(data as EvaluationSummary);
-    } catch (e: any) {
-      setError(e.message);
+    } catch (e: unknown) {
+      setError((e as Error).message);
     } finally {
       setLoading(false);
     }
   };
 
-  useEffect(() => { fetchSummary(); }, []);
+  useEffect(() => {
+    let active = true;
+    const initFetch = async () => {
+      try {
+        const data = await api.get("/evaluations/summary");
+        if (active) setSummary(data as EvaluationSummary);
+      } catch (e: unknown) {
+        if (active) setError((e as Error).message);
+      } finally {
+        if (active) setLoading(false);
+      }
+    };
+    initFetch();
+    return () => { active = false; };
+  }, []);
 
   // Filtered runs
   const filteredRuns = useMemo(() => {

@@ -4,25 +4,25 @@ export type TaskStatus = 'pending' | 'running' | 'success' | 'error';
 export interface DeveloperTaskInput {
   task_type: TaskType;
   repo_ref: string;
-  params: Record<string, any>;
+  params: Record<string, unknown>;
 }
 
 export interface DeveloperTaskOutput {
-  result: any;
+  result: unknown;
   artifacts: string[];
   status: TaskStatus;
 }
 
 export interface RepositoryAnalysisResult {
-  repository: Record<string, any>;
+  repository: Record<string, unknown>;
   languages: string[];
   frameworks: string[];
-  architecture: Record<string, any>;
+  architecture: Record<string, unknown>;
   important_files: string[];
   dependencies: string[];
   entry_points: string[];
   modules: string[];
-  tests: Record<string, any>;
+  tests: Record<string, unknown>;
   risks: string[];
   recommendations: string[];
 }

@@ -1,10 +1,29 @@
 import os
-from typing import Any, Dict
+from pathlib import Path
+from typing import Any, Dict, Set
 
 from app.developer.mcp.tools.base import BaseTool
 from app.developer.schemas import ToolRegistration
 from app.developer.mcp.utils.sandbox import resolve_safe_path
-from app.developer.errors import InternalError
+from app.developer.errors import InternalError, ValidationError
+
+MAX_READ_FILE_BYTES = 1024 * 1024  # 1 MB limit
+MAX_WRITE_SIZE_BYTES = 5 * 1024 * 1024  # 5 MB limit
+MAX_DIRECTORY_ENTRIES = 500
+MAX_SEARCH_RESULTS = 200
+MAX_SEARCH_DEPTH = 10
+
+BINARY_EXTENSIONS: Set[str] = {
+    ".png", ".jpg", ".jpeg", ".gif", ".bmp", ".ico", ".webp",
+    ".pdf", ".zip", ".tar", ".gz", ".tgz", ".bz2", ".xz", ".7z",
+    ".exe", ".dll", ".so", ".dylib", ".bin", ".pyc", ".pyd",
+    ".woff", ".woff2", ".ttf", ".eot", ".otf",
+    ".mp3", ".mp4", ".mov", ".avi", ".flac", ".wav", ".iso"
+}
+
+IGNORED_SEARCH_DIRS: Set[str] = {
+    ".git", "node_modules", ".venv", "venv", "__pycache__", ".next", "dist", "build"
+}
 
 
 class ReadFileTool(BaseTool):
@@ -15,7 +34,7 @@ class ReadFileTool(BaseTool):
     def registration(self) -> ToolRegistration:
         return ToolRegistration(
             name="read_file",
-            description="Reads the contents of a file.",
+            description="Reads the contents of a file safely with size and binary checks.",
             input_schema={
                 "type": "object",
                 "properties": {
@@ -29,12 +48,37 @@ class ReadFileTool(BaseTool):
         target_path = resolve_safe_path(self.workspace_root, arguments["path"])
         if not target_path.is_file():
             raise InternalError(f"File not found: {arguments['path']}")
-        
+
+        # 1. Check binary extensions
+        suffix = target_path.suffix.lower()
+        if suffix in BINARY_EXTENSIONS:
+            raise ValidationError(f"Cannot read binary file with extension '{suffix}'.")
+
+        # 2. Check file size limits before reading
+        try:
+            file_size = target_path.stat().st_size
+            if file_size > MAX_READ_FILE_BYTES:
+                raise ValidationError(
+                    f"File '{arguments['path']}' size ({file_size} bytes) exceeds maximum allowable limit ({MAX_READ_FILE_BYTES} bytes)."
+                )
+        except OSError as e:
+            raise InternalError(f"Failed to inspect file stat: {e}")
+
+        # 3. Detect binary content via null bytes in initial chunk
+        try:
+            with open(target_path, "rb") as bf:
+                chunk = bf.read(512)
+                if b"\x00" in chunk:
+                    raise ValidationError(f"Cannot read binary file: null bytes detected in '{arguments['path']}'.")
+        except OSError as e:
+            raise InternalError(f"Failed to inspect file header: {e}")
+
+        # 4. Safe UTF-8 read
         try:
             with open(target_path, "r", encoding="utf-8") as f:
                 return f.read()
         except UnicodeDecodeError:
-            raise InternalError("Cannot read binary files.")
+            raise ValidationError(f"Cannot read file '{arguments['path']}': file is not valid UTF-8 text.")
         except Exception as e:
             raise InternalError(f"Failed to read file: {e}")
 
@@ -47,7 +91,7 @@ class ListFilesTool(BaseTool):
     def registration(self) -> ToolRegistration:
         return ToolRegistration(
             name="list_files",
-            description="Lists files in a directory.",
+            description="Lists files in a directory up to the maximum entry limit.",
             input_schema={
                 "type": "object",
                 "properties": {
@@ -61,15 +105,19 @@ class ListFilesTool(BaseTool):
         target_path = resolve_safe_path(self.workspace_root, arguments["path"])
         if not target_path.is_dir():
             raise InternalError(f"Directory not found: {arguments['path']}")
-        
+
         try:
             files = []
+            count = 0
             for item in target_path.iterdir():
+                if count >= MAX_DIRECTORY_ENTRIES:
+                    break
                 files.append({
                     "name": item.name,
                     "is_dir": item.is_dir(),
                     "size": item.stat().st_size if item.is_file() else None
                 })
+                count += 1
             return files
         except Exception as e:
             raise InternalError(f"Failed to list directory: {e}")
@@ -83,7 +131,7 @@ class SearchFilesTool(BaseTool):
     def registration(self) -> ToolRegistration:
         return ToolRegistration(
             name="search_files",
-            description="Searches for files by name using simple matching.",
+            description="Searches for files by name with depth and result limits.",
             input_schema={
                 "type": "object",
                 "properties": {
@@ -95,22 +143,34 @@ class SearchFilesTool(BaseTool):
         )
 
     async def execute(self, arguments: Dict[str, Any], trace_id: str) -> Any:
-        # Defaults to workspace root if no path provided
         search_dir = arguments.get("path", "")
         target_path = resolve_safe_path(self.workspace_root, search_dir)
         pattern = arguments["pattern"]
 
         if not target_path.is_dir():
             raise InternalError(f"Directory not found: {search_dir}")
-        
+
         matches = []
-        for root, _, files in os.walk(target_path):
+        base_depth = len(target_path.parts)
+
+        for root, dirs, files in os.walk(target_path):
+            # Prune ignored and hidden directories
+            dirs[:] = [d for d in dirs if not d.startswith('.') and d.lower() not in IGNORED_SEARCH_DIRS]
+
+            # Depth check
+            current_depth = len(Path(root).parts) - base_depth
+            if current_depth > MAX_SEARCH_DEPTH:
+                dirs.clear()
+                continue
+
             for file in files:
                 if pattern in file:
                     full_path = os.path.join(root, file)
                     rel_path = os.path.relpath(full_path, start=self.workspace_root)
                     matches.append(rel_path)
-        
+                    if len(matches) >= MAX_SEARCH_RESULTS:
+                        return matches
+
         return matches
 
 
@@ -122,7 +182,7 @@ class WriteFileTool(BaseTool):
     def registration(self) -> ToolRegistration:
         return ToolRegistration(
             name="write_file",
-            description="Writes content to a file, overwriting if it exists.",
+            description="Writes content to a file safely with write size limits.",
             input_schema={
                 "type": "object",
                 "properties": {
@@ -134,15 +194,25 @@ class WriteFileTool(BaseTool):
         )
 
     async def execute(self, arguments: Dict[str, Any], trace_id: str) -> Any:
-        target_path = resolve_safe_path(self.workspace_root, arguments["path"])
+        content = arguments["content"]
         
+        # Enforce max write size
+        content_bytes = len(content.encode("utf-8"))
+        if content_bytes > MAX_WRITE_SIZE_BYTES:
+            raise ValidationError(
+                f"Write content size ({content_bytes} bytes) exceeds maximum allowable limit ({MAX_WRITE_SIZE_BYTES} bytes)."
+            )
+
+        target_path = resolve_safe_path(self.workspace_root, arguments["path"])
+
         # Ensure parent directories exist
         target_path.parent.mkdir(parents=True, exist_ok=True)
-        
+
         try:
             with open(target_path, "w", encoding="utf-8") as f:
-                f.write(arguments["content"])
+                f.write(content)
             return {"success": True, "path": arguments["path"]}
         except Exception as e:
             raise InternalError(f"Failed to write file: {e}")
+
 

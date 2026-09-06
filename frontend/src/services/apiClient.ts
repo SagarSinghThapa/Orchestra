@@ -1,4 +1,4 @@
-import { DeveloperTaskOutput, TaskStatus } from "@/types/developer";
+import { DeveloperTaskOutput } from "@/types/developer";
 
 const BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api";
 
@@ -21,7 +21,20 @@ class ApiAdapter {
     try {
       const response = await fetch(`${BASE_URL}${endpoint}`, { ...options, headers });
       if (!response.ok) {
-        throw new Error(`API Error: ${response.statusText}`);
+        // Handle authentication/authorization expiration
+        if (response.status === 401 || response.status === 403) {
+          if (typeof window !== 'undefined') {
+            localStorage.removeItem("jwt_token");
+          }
+        }
+        let errorData: Record<string, unknown> | null = null;
+        try {
+          errorData = await response.json();
+        } catch {
+          // Response body was not JSON
+        }
+        const message = (errorData?.detail as string) || (errorData?.message as string) || `API Error (${response.status}): ${response.statusText}`;
+        throw new Error(message);
       }
       return response.json();
     } catch (error) {
@@ -30,16 +43,17 @@ class ApiAdapter {
     }
   }
 
+
   get(endpoint: string) {
     return this.request(endpoint, { method: "GET" });
   }
 
-  post(endpoint: string, data: any) {
+  post(endpoint: string, data: unknown) {
     return this.request(endpoint, { method: "POST", body: JSON.stringify(data) });
   }
 
   // Temporary mock handler for Developer Tasks
-  private async _handleMock(endpoint: string, options: RequestInit): Promise<any> {
+  private async _handleMock(endpoint: string, options: RequestInit): Promise<unknown> {
     await new Promise(resolve => setTimeout(resolve, 1500)); // Simulate latency
     
     if (endpoint === '/developer/task' && options.body) {

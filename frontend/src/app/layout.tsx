@@ -15,8 +15,34 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en">
-      <body className={`${inter.className} bg-gray-50 text-gray-900`}>
+    <html lang="en" suppressHydrationWarning>
+      <head>
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `
+              try {
+                var observer = new MutationObserver(function(mutations) {
+                  for (var i = 0; i < mutations.length; i++) {
+                    var m = mutations[i];
+                    if (m.type === 'attributes') {
+                      var name = m.attributeName;
+                      if (name === 'bis_skin_checked' || name === 'bis_register' || (name && name.indexOf('__processed_') === 0)) {
+                        m.target.removeAttribute(name);
+                      }
+                    }
+                  }
+                });
+                observer.observe(document.documentElement, {
+                  attributes: true,
+                  subtree: true,
+                  attributeFilter: ['bis_skin_checked', 'bis_register']
+                });
+              } catch (e) {}
+            `,
+          }}
+        />
+      </head>
+      <body className={`${inter.className} bg-gray-50 text-gray-900`} suppressHydrationWarning>
         <div className="flex h-screen overflow-hidden">
           {/* Sidebar */}
           <aside className="w-64 bg-gray-900 text-white flex-shrink-0">
@@ -25,7 +51,7 @@ export default function RootLayout({
             </div>
             <nav className="p-4 space-y-2">
               <a href="/dashboard" className="block p-2 rounded hover:bg-gray-800">Dashboard</a>
-              <a href="/repositories" className="block p-2 rounded hover:bg-gray-800">Repository Intel</a>
+              <a href="/developer/repository" className="block p-2 rounded hover:bg-gray-800">Repository Intel</a>
               <a href="/developer" className="block p-2 rounded hover:bg-gray-800">Developer Agents</a>
               <a href="/evaluations" className="block p-2 rounded hover:bg-gray-800">Evaluations</a>
               <a href="/settings" className="block p-2 rounded hover:bg-gray-800">Settings</a>

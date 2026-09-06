@@ -26,7 +26,11 @@ class RepositoryAgent(BaseAgent):
         """
         Executes a staged, deterministic repository analysis using MCP tools.
         """
-        repo_ref = params.get("repo_ref", "")
+        repo_ref = str(params.get("repo_ref", "")).strip()
+        if "\0" in repo_ref:
+            self.logger.warn(f"Null byte detected in repo_ref", trace_id=trace_id)
+            repo_ref = ""
+
         self.logger.info(f"Starting analysis for repo: {repo_ref}", trace_id=trace_id)
 
         # Stage 1: Deterministic inspection
@@ -40,14 +44,19 @@ class RepositoryAgent(BaseAgent):
         
         file_contents = {}
         for m in manifests:
+            if len(file_contents) >= self.max_files_to_read:
+                break
             matches = await self._call_tool("search_files", {"pattern": m}, trace_id)
             if matches:
                 for match in matches[:2]:  # Limit duplicates
+                    if len(file_contents) >= self.max_files_to_read:
+                        break
                     meta = await self._call_tool("file_metadata", {"path": match}, trace_id)
                     if meta and not meta.get("is_dir") and meta.get("size", 0) <= self.max_file_size_bytes:
                         content = await self._call_tool("read_file", {"path": match}, trace_id)
                         if content:
                             file_contents[match] = content
+
                             
         # Stage 2: Interpretation
         # (This is stubbed logically for Phase 3, avoiding massive LLM context)

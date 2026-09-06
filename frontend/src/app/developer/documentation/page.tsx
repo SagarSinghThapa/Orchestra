@@ -31,8 +31,8 @@ export default function DocumentationGeneratorPage() {
       setTraceId(response.trace_id);
       setResult(response.output_payload.result);
       setStatus(response.output_payload.status);
-    } catch (e: any) {
-      setError(e.message);
+    } catch (e: unknown) {
+      setError((e as Error).message);
       setStatus('error');
     }
   };

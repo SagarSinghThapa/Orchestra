@@ -67,6 +67,10 @@ def route_task(state: DeveloperState) -> str:
         return "format_error"
 
 
+from app.developer.errors import ErrorTaxonomy, DeveloperBaseException
+from app.developer.logging import scrub_secrets
+
+
 # 3. Agent Execution Factories (Curried for injection)
 def create_repository_node(mcp_gateway: MCPGateway):
     async def repository_node(state: DeveloperState) -> DeveloperState:
@@ -77,8 +81,10 @@ def create_repository_node(mcp_gateway: MCPGateway):
             
             result = await agent.execute(params, state.get("trace_id", "N/A"))
             return {"agent_result": result}
+        except DeveloperBaseException as e:
+            return {"error": f"[{e.code.value}] {scrub_secrets(e.message)}"}
         except Exception as e:
-            return {"error": str(e)}
+            return {"error": f"[{ErrorTaxonomy.INTERNAL.value}] {scrub_secrets(str(e))}"}
     return repository_node
 
 
@@ -91,8 +97,10 @@ def create_coding_node(mcp_gateway: MCPGateway):
             
             result = await agent.execute(params, state.get("trace_id", "N/A"))
             return {"agent_result": result}
+        except DeveloperBaseException as e:
+            return {"error": f"[{e.code.value}] {scrub_secrets(e.message)}"}
         except Exception as e:
-            return {"error": str(e)}
+            return {"error": f"[{ErrorTaxonomy.INTERNAL.value}] {scrub_secrets(str(e))}"}
     return coding_node
 
 
@@ -105,9 +113,12 @@ def create_documentation_node(mcp_gateway: MCPGateway):
             
             result = await agent.execute(params, state.get("trace_id", "N/A"))
             return {"agent_result": result}
+        except DeveloperBaseException as e:
+            return {"error": f"[{e.code.value}] {scrub_secrets(e.message)}"}
         except Exception as e:
-            return {"error": str(e)}
+            return {"error": f"[{ErrorTaxonomy.INTERNAL.value}] {scrub_secrets(str(e))}"}
     return documentation_node
+
 
 
 # 4. Normalization Node

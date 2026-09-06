@@ -61,6 +61,12 @@ class CodingAgent(BaseAgent):
         validation = {}
         
         # Security checks
+        if not isinstance(proposed_changes, dict):
+            return CodingAgentResult(
+                summary="Failed due to invalid proposed_changes format (must be dict).",
+                plan=[], files_changed=[], diffs={}, validation={}, warnings=["proposed_changes must be a dictionary"]
+            ).model_dump()
+
         if len(proposed_changes) > self.max_files_changed:
             msg = f"Proposed changes exceed max allowed ({len(proposed_changes)} > {self.max_files_changed})."
             warnings.append(msg)
@@ -69,12 +75,23 @@ class CodingAgent(BaseAgent):
             ).model_dump()
             
         for path, new_content in proposed_changes.items():
+            if not isinstance(path, str) or not isinstance(new_content, str):
+                warnings.append(f"Invalid entry: path and content must be strings.")
+                continue
+
+
+            # Per file write limit (1MB)
+            if len(new_content.encode("utf-8")) > 1024 * 1024:
+                warnings.append(f"Proposed content for {path} exceeds 1MB limit.")
+                continue
+
             ext = "." + path.split(".")[-1] if "." in path else ""
             if ext not in self.allowed_extensions:
                 warnings.append(f"Extension not allowed for {path}")
                 continue
                 
             files_changed.append(path)
+
             
             # Read old content
             old_content = await self._call_tool("read_file", {"path": path}, trace_id)

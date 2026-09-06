@@ -37,7 +37,7 @@ class ToolRegistration(BaseModel):
 
 class ToolRequest(BaseModel):
     tool_name: str = Field(..., description="Name of the requested tool")
-    arguments: Dict[str, Any] = Field(default_factory=dict, description="Arguments to execute the tool with")
+    arguments: Any = Field(default_factory=dict, description="Arguments to execute the tool with")
     request_id: str = Field(..., description="Unique ID for tracing the request")
 
 

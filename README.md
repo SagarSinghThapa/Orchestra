@@ -23,3 +23,17 @@ Responsible for:
 - CI/CD
 - Monitoring
 - Evaluation infrastructure
+
+## Member 3 — Code Intelligence & Frontend
+
+Responsible for:
+
+- Next.js (App Router) Frontend
+- Developer Subgraph (Orchestrating AI coding operations)
+- Specialized Agents (Repository, Coding, Documentation)
+- Model Context Protocol (MCP) Gateway and Tool ecosystem
+- Interactive Workspace UI (Monaco Editor & React Diff Viewer)
+- Evaluation Metrics Dashboard
+- Agent Sandbox & Hardening Controls
+
+**Documentation:** [Member 3 Final Report](docs/member3/FINAL_REPORT.md)
