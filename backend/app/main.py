@@ -1,29 +1,41 @@
-from app.api.sessions import router as sessions_router
-from app.api.projects import router as projects_router
+from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from sqlalchemy import text
-from app.auth.router import router as auth_router
-from app.database.base import Base
-from app.database.connection import engine
-from app.models.user import User
+
+from app.api.sessions import router as sessions_router
+from app.api.projects import router as projects_router
 from app.api.messages import router as messages_router
+from app.auth.router import router as auth_router
+from app.database.connection import engine
+from app.core.config import settings
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Application startup: verify configuration without side-effect table creation
+    # Database schema lifecycle is managed authoritatively via Alembic migrations
+    yield
+    # Application shutdown
+
+
 app = FastAPI(
-    title="Multi-Agent AI Research System",
-    description="Platform Core API - Member 2",
+    title="Orchestra",
+    description="Multi-Agent AI Engineering Platform API",
     version="1.0.0",
+    lifespan=lifespan,
 )
+
 app.include_router(auth_router)
 app.include_router(projects_router)
 app.include_router(sessions_router)
 app.include_router(messages_router)
-Base.metadata.create_all(bind=engine)
+
 
 @app.get("/")
 def root():
     return {
-        "project": "Multi-Agent AI Research System",
+        "project": "Orchestra",
         "component": "Platform Core",
-        "member": "Member 2",
         "status": "running",
     }
 
@@ -37,6 +49,13 @@ def health():
 
 @app.get("/health/database")
 def database_health():
+    if engine is None:
+        return {
+            "database": "unconfigured",
+            "status": "unhealthy",
+            "error": "DATABASE_URL is not configured",
+        }
+
     try:
         with engine.connect() as connection:
             connection.execute(text("SELECT 1"))

@@ -12,6 +12,9 @@ def create_access_token(
     data: dict,
     expires_minutes: int = 60,
 ) -> str:
+    if not settings.jwt_secret:
+        settings.validate_runtime_requirements()
+
     payload = data.copy()
 
     expire = datetime.now(timezone.utc) + timedelta(
@@ -28,6 +31,9 @@ def create_access_token(
 
 
 def decode_access_token(token: str) -> dict:
+    if not settings.jwt_secret:
+        settings.validate_runtime_requirements()
+
     return jwt.decode(
         token,
         settings.jwt_secret,
