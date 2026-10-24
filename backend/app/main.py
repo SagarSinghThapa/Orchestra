@@ -6,7 +6,7 @@ from app.api.sessions import router as sessions_router
 from app.api.projects import router as projects_router
 from app.api.messages import router as messages_router
 from app.auth.router import router as auth_router
-from app.database.connection import engine
+from app.database.connection import engine, dispose_engine
 from app.core.config import settings
 
 
@@ -16,6 +16,7 @@ async def lifespan(app: FastAPI):
     # Database schema lifecycle is managed authoritatively via Alembic migrations
     yield
     # Application shutdown
+    dispose_engine()
 
 
 app = FastAPI(
