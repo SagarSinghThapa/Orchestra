@@ -5,6 +5,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 class Settings(BaseSettings):
     database_url: Optional[str] = None
     jwt_secret: Optional[str] = None
+    redis_url: Optional[str] = None
     environment: str = "production"
 
     # Database Connection Pool Settings

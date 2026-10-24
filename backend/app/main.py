@@ -7,15 +7,17 @@ from app.api.projects import router as projects_router
 from app.api.messages import router as messages_router
 from app.auth.router import router as auth_router
 from app.database.connection import engine, dispose_engine
+from app.core.redis import init_redis_pool, close_redis_pool, get_redis_health
 from app.core.config import settings
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Application startup: verify configuration without side-effect table creation
-    # Database schema lifecycle is managed authoritatively via Alembic migrations
+    # Application startup: initialize Redis pool (graceful fallback)
+    await init_redis_pool()
     yield
-    # Application shutdown
+    # Application shutdown: cleanly close Redis and dispose of DB connection pool
+    await close_redis_pool()
     dispose_engine()
 
 
@@ -72,3 +74,8 @@ def database_health():
             "status": "unhealthy",
             "error": str(e),
         }
+
+
+@app.get("/health/redis")
+async def redis_health():
+    return await get_redis_health()
