@@ -151,22 +151,9 @@ def client(db_session: Session) -> Generator[TestClient, None, None]:
 
 
 @pytest.fixture
-def auth_client(client: TestClient, test_user: User) -> Generator[TestClient, None, None]:
-    """FastAPI TestClient authenticated as test_user."""
-    def _override_current_user():
-        return test_user
-
-    app.dependency_overrides[get_current_user] = _override_current_user
-    yield client
-    app.dependency_overrides.pop(get_current_user, None)
-
-
-@pytest.fixture
-def second_auth_client(client: TestClient, second_user: User) -> Generator[TestClient, None, None]:
-    """FastAPI TestClient authenticated as second_user (cross-user / IDOR testing)."""
-    def _override_second_user():
-        return second_user
-
-    app.dependency_overrides[get_current_user] = _override_second_user
-    yield client
+def set_auth():
+    """Helper to dynamically switch authenticated user for API requests."""
+    def _set(user: User):
+        app.dependency_overrides[get_current_user] = lambda: user
+    yield _set
     app.dependency_overrides.pop(get_current_user, None)
