@@ -1,3 +1,4 @@
+from app.models.document import Document, DocumentStatus
 from app.models.message import Message
 from app.models.project import Project
 from app.models.session import Session
@@ -8,4 +9,6 @@ __all__ = [
     "Project",
     "Session",
     "Message",
+    "Document",
+    "DocumentStatus",
 ]
