@@ -15,8 +15,18 @@ from app.main import app
 from app.models.user import User, UserRole
 from app.models.project import Project
 from app.auth.password import hash_password
+from app.research.embeddings.mock import DeterministicTestEmbeddingProvider
+from app.research.services.ingestion_service import IngestionService
+from app.research.storage.local import LocalStorageBackend
+from app.research.vectorstore.qdrant import QdrantVectorStore
 
 TEST_DATABASE_URL = os.getenv("TEST_DATABASE_URL", "sqlite:///:memory:")
+
+
+@pytest.fixture(autouse=True)
+def test_environment(monkeypatch):
+    """Enforces test environment mode during research test runs."""
+    monkeypatch.setattr(settings, "environment", "test")
 
 
 @event.listens_for(Engine, "connect")
@@ -117,3 +127,66 @@ def test_project_b(db_session: Session, test_user_b: User) -> Project:
     db_session.commit()
     db_session.refresh(project)
     return project
+
+
+@pytest.fixture
+def test_storage(tmp_path):
+    """Isolated storage backend rooted in test temporary directory."""
+    return LocalStorageBackend(root_dir=str(tmp_path / "storage"))
+
+
+@pytest.fixture
+def test_vectorstore():
+    """Isolated in-memory Qdrant vector store."""
+    return QdrantVectorStore(location=":memory:", collection_name="test_orchestra_knowledge")
+
+
+@pytest.fixture
+def test_embedding_provider():
+    """Deterministic offline embedding provider for test suite."""
+    return DeterministicTestEmbeddingProvider(dimension=settings.embedding_dimension)
+
+
+@pytest.fixture
+def test_ingestion_service(
+    db_session: Session, test_storage, test_vectorstore, test_embedding_provider
+):
+    """Configured test IngestionService with isolated storage and in-memory vector store."""
+    return IngestionService(
+        db=db_session,
+        storage=test_storage,
+        vector_store=test_vectorstore,
+        embedding_provider=test_embedding_provider,
+    )
+
+
+@pytest.fixture
+def client(db_session: Session, test_ingestion_service) -> Generator[TestClient, None, None]:
+    """TestClient overriding get_db and get_ingestion_service."""
+    from app.auth.dependencies import get_current_user
+    from app.api.documents import get_ingestion_service
+
+    def _override_get_db():
+        yield db_session
+
+    app.dependency_overrides[get_db] = _override_get_db
+    app.dependency_overrides[get_ingestion_service] = lambda: test_ingestion_service
+
+    with TestClient(app) as test_client:
+        yield test_client
+
+    app.dependency_overrides.pop(get_db, None)
+    app.dependency_overrides.pop(get_ingestion_service, None)
+    app.dependency_overrides.pop(get_current_user, None)
+
+
+@pytest.fixture
+def set_auth():
+    """Helper to dynamically switch authenticated user for API requests."""
+    from app.auth.dependencies import get_current_user
+
+    def _set(user: User):
+        app.dependency_overrides[get_current_user] = lambda: user
+
+    yield _set
+    app.dependency_overrides.pop(get_current_user, None)

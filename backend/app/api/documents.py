@@ -136,7 +136,7 @@ async def upload_document(
         )
 
     storage_key = f"projects/{project.id}/{uuid4().hex}{ext}"
-    storage = LocalStorageBackend()
+    storage = ingestion_service.storage
     storage.save(content, storage_key)
 
     # Storage compensation protocol
