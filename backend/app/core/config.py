@@ -20,6 +20,12 @@ class Settings(BaseSettings):
     cookie_secure: bool = False
     cookie_samesite: str = "lax"
 
+    # Storage & Document Ingestion Settings
+    storage_local_root: str = "data/storage"
+    max_upload_size_bytes: int = 10 * 1024 * 1024
+    allowed_upload_extensions: tuple[str, ...] = (".pdf", ".txt", ".md")
+    max_pdf_pages: int = 500
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
