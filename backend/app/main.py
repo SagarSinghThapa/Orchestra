@@ -79,3 +79,33 @@ def database_health():
 @app.get("/health/redis")
 async def redis_health():
     return await get_redis_health()
+
+
+@app.get("/health/qdrant")
+async def qdrant_health():
+    if not settings.qdrant_url:
+        return {
+            "qdrant": "unconfigured",
+            "status": "unhealthy",
+        }
+
+    try:
+        from qdrant_client import AsyncQdrantClient
+
+        client = AsyncQdrantClient(
+            url=settings.qdrant_url,
+            api_key=settings.qdrant_api_key,
+            timeout=3.0,
+        )
+        await client.get_collections()
+        await client.close()
+        return {
+            "qdrant": "connected",
+            "status": "healthy",
+        }
+    except Exception as e:
+        return {
+            "qdrant": "disconnected",
+            "status": "unhealthy",
+            "error": str(e),
+        }
