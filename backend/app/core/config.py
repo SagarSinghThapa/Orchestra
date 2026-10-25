@@ -14,6 +14,12 @@ class Settings(BaseSettings):
     db_pool_timeout: int = 30
     db_pool_recycle: int = 1800
 
+    # Authentication & Session Settings
+    access_token_expire_minutes: int = 30
+    refresh_token_expire_days: int = 7
+    cookie_secure: bool = False
+    cookie_samesite: str = "lax"
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
