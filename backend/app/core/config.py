@@ -26,6 +26,18 @@ class Settings(BaseSettings):
     allowed_upload_extensions: tuple[str, ...] = (".pdf", ".txt", ".md")
     max_pdf_pages: int = 500
 
+    # Embedding Provider Settings
+    embedding_provider: str = "test"
+    embedding_base_url: Optional[str] = None
+    embedding_api_key: Optional[str] = None
+    embedding_model: str = "text-embedding-3-small"
+    embedding_dimension: int = 1536
+
+    # Qdrant Vector Store Settings
+    qdrant_url: Optional[str] = "http://localhost:6333"
+    qdrant_api_key: Optional[str] = None
+    qdrant_collection_name: str = "orchestra_knowledge"
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
@@ -47,6 +59,17 @@ class Settings(BaseSettings):
                 f"Missing required environment configuration: {', '.join(missing)}. "
                 "Define these variables in your environment or .env file before running Orchestra."
             )
+
+        if self.environment == "production":
+            if self.embedding_provider == "test":
+                raise RuntimeError(
+                    "EMBEDDING_PROVIDER cannot be 'test' in production environment. "
+                    "Configure a real provider such as 'openai_compatible' with required credentials."
+                )
+            if self.embedding_provider == "openai_compatible" and not self.embedding_api_key:
+                raise RuntimeError(
+                    "EMBEDDING_API_KEY must be configured for openai_compatible provider in production"
+                )
 
 
 settings = Settings()
