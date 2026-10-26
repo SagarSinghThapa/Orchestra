@@ -161,22 +161,41 @@ def test_ingestion_service(
 
 
 @pytest.fixture
-def client(db_session: Session, test_ingestion_service) -> Generator[TestClient, None, None]:
-    """TestClient overriding get_db and get_ingestion_service."""
+def test_retrieval_service(
+    db_session: Session, test_vectorstore, test_embedding_provider
+):
+    """Configured test RetrievalService with isolated in-memory vector store."""
+    from app.research.services.retrieval_service import RetrievalService
+
+    return RetrievalService(
+        db=db_session,
+        vector_store=test_vectorstore,
+        embedding_provider=test_embedding_provider,
+    )
+
+
+@pytest.fixture
+def client(
+    db_session: Session, test_ingestion_service, test_retrieval_service
+) -> Generator[TestClient, None, None]:
+    """TestClient overriding get_db, get_ingestion_service, and get_retrieval_service."""
     from app.auth.dependencies import get_current_user
     from app.api.documents import get_ingestion_service
+    from app.api.search import get_retrieval_service
 
     def _override_get_db():
         yield db_session
 
     app.dependency_overrides[get_db] = _override_get_db
     app.dependency_overrides[get_ingestion_service] = lambda: test_ingestion_service
+    app.dependency_overrides[get_retrieval_service] = lambda: test_retrieval_service
 
     with TestClient(app) as test_client:
         yield test_client
 
     app.dependency_overrides.pop(get_db, None)
     app.dependency_overrides.pop(get_ingestion_service, None)
+    app.dependency_overrides.pop(get_retrieval_service, None)
     app.dependency_overrides.pop(get_current_user, None)
 
 
