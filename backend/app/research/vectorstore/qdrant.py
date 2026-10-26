@@ -187,19 +187,27 @@ class QdrantVectorStore:
         project_id: int,
         query_vector: list[float],
         limit: int = 5,
+        document_ids: Optional[list[int]] = None,
     ) -> list[models.ScoredPoint]:
         """
-        Searches vectors enforcing strict project-level isolation.
+        Searches vectors enforcing strict project-level isolation and optional document filtering.
         """
         client = await self._get_client()
-        filter_criteria = models.Filter(
-            must=[
+        must_conditions: list[models.Condition] = [
+            models.FieldCondition(
+                key="project_id",
+                match=models.MatchValue(value=project_id),
+            ),
+        ]
+        if document_ids:
+            must_conditions.append(
                 models.FieldCondition(
-                    key="project_id",
-                    match=models.MatchValue(value=project_id),
-                ),
-            ]
-        )
+                    key="document_id",
+                    match=models.MatchAny(any=document_ids),
+                )
+            )
+
+        filter_criteria = models.Filter(must=must_conditions)
 
         try:
             if hasattr(client, "query_points"):
@@ -221,3 +229,77 @@ class QdrantVectorStore:
             raise VectorStoreError(
                 f"Failed to search Qdrant collection '{self.collection_name}': {exc}"
             ) from exc
+
+    async def scroll_project_chunks(
+        self,
+        project_id: int,
+        document_ids: Optional[list[int]] = None,
+        batch_size: int = 100,
+    ) -> list[DocumentChunk]:
+        """
+        Retrieves all indexed chunks for a given project via cursor pagination until exhaustion.
+        Enforces project tenant isolation and safety bounds to prevent memory starvation.
+        """
+        client = await self._get_client()
+        must_conditions: list[models.Condition] = [
+            models.FieldCondition(
+                key="project_id",
+                match=models.MatchValue(value=project_id),
+            ),
+        ]
+        if document_ids:
+            must_conditions.append(
+                models.FieldCondition(
+                    key="document_id",
+                    match=models.MatchAny(any=document_ids),
+                )
+            )
+
+        filter_criteria = models.Filter(must=must_conditions)
+        chunks: list[DocumentChunk] = []
+        offset = None
+
+        try:
+            while True:
+                records, next_offset = await client.scroll(
+                    collection_name=self.collection_name,
+                    scroll_filter=filter_criteria,
+                    limit=batch_size,
+                    offset=offset,
+                    with_payload=True,
+                    with_vectors=False,
+                )
+
+                for rec in records:
+                    p = rec.payload or {}
+                    chunks.append(
+                        DocumentChunk(
+                            chunk_id=p.get("chunk_id", str(rec.id)),
+                            document_id=p["document_id"],
+                            project_id=p["project_id"],
+                            text=p["text"],
+                            chunk_index=p.get("chunk_index", 0),
+                            page_number=p.get("page_number", 1),
+                            start_char=p.get("start_char", 0),
+                            end_char=p.get("end_char", len(p["text"])),
+                            token_count=p.get("token_count", max(1, len(p["text"]) // 4)),
+                        )
+                    )
+
+                    if len(chunks) > settings.retrieval_max_project_chunks:
+                        raise VectorStoreError(
+                            f"Project {project_id} exceeds maximum chunk limit of {settings.retrieval_max_project_chunks} chunks."
+                        )
+
+                if next_offset is None or not records:
+                    break
+                offset = next_offset
+
+            return chunks
+        except VectorStoreError:
+            raise
+        except Exception as exc:
+            raise VectorStoreError(
+                f"Failed to scroll chunks for project {project_id} from Qdrant: {exc}"
+            ) from exc
+
