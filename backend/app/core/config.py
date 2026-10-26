@@ -38,6 +38,15 @@ class Settings(BaseSettings):
     qdrant_api_key: Optional[str] = None
     qdrant_collection_name: str = "orchestra_knowledge"
 
+    # Retrieval & Hybrid Search Settings
+    retrieval_default_top_k: int = 5
+    retrieval_max_top_k: int = 50
+    retrieval_rrf_k: int = 60
+    retrieval_dense_weight: float = 1.0
+    retrieval_sparse_weight: float = 1.0
+    retrieval_min_score_threshold: float = 0.0
+    retrieval_max_project_chunks: int = 5000
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
