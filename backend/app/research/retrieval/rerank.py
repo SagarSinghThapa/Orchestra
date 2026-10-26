@@ -45,8 +45,8 @@ class DeterministicTestReranker(Reranker):
             union = len(q_tokens.union(c_tokens)) if (q_tokens or c_tokens) else 1
             jaccard = intersection / union if union > 0 else 0.0
 
-            # Deterministic composite score: 0.5 * original_score + 0.5 * jaccard
-            score = 0.5 * c.score + 0.5 * jaccard
+            # Deterministic composite score: 0.2 * original_score + 0.8 * jaccard
+            score = 0.2 * c.score + 0.8 * jaccard
             updated = c.model_copy(
                 update={
                     "score": score,
