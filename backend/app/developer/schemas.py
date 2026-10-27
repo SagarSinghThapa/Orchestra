@@ -126,6 +126,7 @@ class CodingAgentResult(BaseModel):
     diffs: Dict[str, str] = Field(default_factory=dict, description="Dictionary mapping file paths to unified diffs")
     validation: Dict[str, str] = Field(default_factory=dict, description="Dictionary mapping file paths to validation status/errors")
     warnings: List[str] = Field(default_factory=list, description="Any warnings such as size limits or invalid extensions")
+    proposed_patches: List[Dict[str, Any]] = Field(default_factory=list, description="Structured patch list")
 
 
 class DocAgentResult(BaseModel):

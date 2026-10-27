@@ -35,6 +35,16 @@ class MCPGateway:
         self.allowed_tools = allowed_tools or ALLOWED_TOOL_NAMES
         self.events: List[ToolEventRecord] = []
 
+        # Request-local execution and file budgets
+        self.max_tool_calls: int = 20
+        self.max_files_read: int = 10
+        self.max_cumulative_read_bytes: int = 5 * 1024 * 1024
+        self.max_files_modified: int = 5
+        self.tool_calls_count: int = 0
+        self.files_read: Set[str] = set()
+        self.cumulative_read_bytes: int = 0
+        self.files_modified: Set[str] = set()
+
     def register_tool(self, tool: BaseTool) -> None:
         """
         Registers a tool instance after verifying it belongs to the approved allowlist
@@ -62,6 +72,16 @@ class MCPGateway:
         start_time = time.perf_counter()
         
         self.logger.info(f"Dispatching tool request: {tool_name}", trace_id=trace_id)
+
+        # Check tool call budget: max 20 tool calls per request. 21st tool call is rejected.
+        if self.tool_calls_count >= self.max_tool_calls:
+            self._record_event(tool_name, None, start_time, "error")
+            return ToolResponse(
+                status=ToolResponseStatus.ERROR,
+                error_code=ErrorTaxonomy.VALIDATION_INPUT.value,
+                result=f"Tool call budget exceeded: maximum {self.max_tool_calls} tool calls allowed per request."
+            )
+        self.tool_calls_count += 1
 
         # 1. Validate argument types
         if not isinstance(request.arguments, dict):
@@ -98,10 +118,9 @@ class MCPGateway:
                 error_code=ErrorTaxonomy.VALIDATION_INPUT.value,
                 result=f"Tool not registered or unapproved: {tool_name}"
             )
-        
         tool = self._tools[tool_name]
         target_path = str(request.arguments.get("path", "")) if "path" in request.arguments else None
-        
+
         # 3. Validate arguments against the JSON Schema
         try:
             validate(instance=request.arguments, schema=tool.registration.input_schema)
@@ -114,12 +133,48 @@ class MCPGateway:
                 result=f"Invalid arguments: {e.message}"
             )
 
+        # Check file read and modify budgets before execution
+        if tool_name == "read_file":
+            if target_path and target_path not in self.files_read:
+                if len(self.files_read) >= self.max_files_read:
+                    self._record_event(tool_name, target_path, start_time, "error")
+                    return ToolResponse(
+                        status=ToolResponseStatus.ERROR,
+                        error_code=ErrorTaxonomy.VALIDATION_INPUT.value,
+                        result=f"File read limit exceeded: maximum {self.max_files_read} files may be read per request."
+                    )
+        elif tool_name == "write_file":
+            if target_path and target_path not in self.files_modified:
+                if len(self.files_modified) >= self.max_files_modified:
+                    self._record_event(tool_name, target_path, start_time, "error")
+                    return ToolResponse(
+                        status=ToolResponseStatus.ERROR,
+                        error_code=ErrorTaxonomy.VALIDATION_INPUT.value,
+                        result=f"File modification limit exceeded: maximum {self.max_files_modified} files may be modified per request."
+                    )
+
         # 4. Execute with timeout
         try:
             result = await asyncio.wait_for(
                 tool.execute(request.arguments, trace_id=trace_id),
                 timeout=self.execution_timeout_seconds
             )
+            # Check cumulative read bytes and record touched files
+            if tool_name == "read_file" and isinstance(result, str):
+                read_bytes = len(result.encode("utf-8"))
+                if self.cumulative_read_bytes + read_bytes > self.max_cumulative_read_bytes:
+                    self._record_event(tool_name, target_path, start_time, "error")
+                    return ToolResponse(
+                        status=ToolResponseStatus.ERROR,
+                        error_code=ErrorTaxonomy.VALIDATION_INPUT.value,
+                        result=f"Cumulative read bytes limit exceeded: maximum {self.max_cumulative_read_bytes} bytes allowed."
+                    )
+                self.cumulative_read_bytes += read_bytes
+                if target_path:
+                    self.files_read.add(str(target_path))
+            elif tool_name == "write_file" and target_path:
+                self.files_modified.add(str(target_path))
+
             self.logger.info(f"Tool execution successful: {tool_name}", trace_id=trace_id)
             self._record_event(tool_name, target_path, start_time, "success")
             return ToolResponse(
