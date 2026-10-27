@@ -107,3 +107,52 @@ class TestBM25Okapi:
         assert results[1][2] == 1
         assert results[0][0].chunk_id == "d0"
         assert results[1][0].chunk_id == "d1"
+
+    def test_bm25_unicode_accented_latin_tokenization_and_search(self):
+        """Optional fix: Accented Latin terms tokenize cleanly and match sparse retrieval."""
+        tokens = tokenize("Le café est un lieu idéal pour réviser un résumé naïve.")
+        assert "café" in tokens
+        assert "résumé" in tokens
+        assert "naïve" in tokens
+
+        docs = [
+            DummyChunk("Discussion sur les algorithmes dans un café parisien", chunk_id="doc_cafe"),
+            DummyChunk("Rapport technique sur les bases de données SQL", chunk_id="doc_sql"),
+        ]
+        bm25 = BM25Okapi(docs)
+        results = bm25.search("café", limit=1)
+        assert len(results) == 1
+        assert results[0][0].chunk_id == "doc_cafe"
+        assert results[0][1] > 0.0
+
+    def test_bm25_unicode_devanagari_tokenization_and_search(self):
+        """Optional fix: Non-Latin script (Devanagari) terms tokenize cleanly and match."""
+        tokens = tokenize("आर्टिफिशियल इंटेलिजेंस और बहु-एजेंट अनुसंधान प्रणाली")
+        assert "अनुसंधान" in tokens
+        assert "प्रणाली" in tokens
+
+        docs = [
+            DummyChunk("बहु-एजेंट अनुसंधान प्रणाली का अवलोकन", chunk_id="doc_hindi"),
+            DummyChunk("PostgreSQL database transaction management", chunk_id="doc_en"),
+        ]
+        bm25 = BM25Okapi(docs)
+        results = bm25.search("अनुसंधान", limit=1)
+        assert len(results) == 1
+        assert results[0][0].chunk_id == "doc_hindi"
+        assert results[0][1] > 0.0
+
+    def test_bm25_technical_identifiers_preserved_and_source_unchanged(self):
+        """Optional fix: Technical identifiers with underscores are preserved and source text is not mutated."""
+        source = "API_KEY_SECRET_V1 and model_checkpoint_999."
+        tokens = tokenize(source)
+        assert "api_key_secret_v1" in tokens
+        assert "model_checkpoint_999" in tokens
+
+        doc = DummyChunk(source, chunk_id="doc_tech")
+        bm25 = BM25Okapi([doc])
+        results = bm25.search("model_checkpoint_999")
+        assert len(results) == 1
+        assert results[0][0].chunk_id == "doc_tech"
+        # Source text must be completely unchanged
+        assert doc.text == "API_KEY_SECRET_V1 and model_checkpoint_999."
+

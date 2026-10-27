@@ -2,7 +2,7 @@ import pytest
 from uuid import NAMESPACE_URL, uuid5
 
 from app.research.chunking.base import DocumentChunk
-from app.research.exceptions import ConfigurationError
+from app.research.exceptions import ConfigurationError, VectorStoreError
 from app.research.vectorstore.qdrant import QdrantVectorStore
 
 
@@ -181,7 +181,41 @@ class TestQdrantVectorStore:
         finally:
             await store.close()
 
+    @pytest.mark.asyncio
+    async def test_absent_collection_returns_empty_results(self):
+        """Optional fix: Non-existent collection returns empty results cleanly without raising errors."""
+        store = QdrantVectorStore(location=":memory:", collection_name="non_existent_collection_abc")
+        try:
+            res_search = await store.search(project_id=1, query_vector=[0.1, 0.2, 0.3, 0.4])
+            assert res_search == []
+
+            res_scroll = await store.scroll_project_chunks(project_id=1)
+            assert res_scroll == []
+        finally:
+            await store.close()
+
+    @pytest.mark.asyncio
+    async def test_unreachable_qdrant_raises_vectorstore_error(self, monkeypatch):
+        """Optional fix: Network / connection failure during collection check raises controlled VectorStoreError."""
+        store = QdrantVectorStore(location=":memory:", collection_name="test_col_conn_err")
+        client = await store._get_client()
+
+        async def _mock_collection_exists_fail(_name):
+            raise ConnectionError("Simulated socket connection failure to Qdrant cluster")
+
+        monkeypatch.setattr(client, "collection_exists", _mock_collection_exists_fail)
+
+        try:
+            with pytest.raises(VectorStoreError, match="Failed to search Qdrant collection"):
+                await store.search(project_id=1, query_vector=[0.1, 0.2, 0.3, 0.4])
+
+            with pytest.raises(VectorStoreError, match="Failed to scroll chunks for project"):
+                await store.scroll_project_chunks(project_id=1)
+        finally:
+            await store.close()
+
     def test_lazy_app_main_import_without_live_qdrant(self):
         # Verification that importing app.main does not trigger any network connection to Qdrant
         import app.main
         assert app.main.app is not None
+

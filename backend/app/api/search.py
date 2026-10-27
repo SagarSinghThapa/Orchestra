@@ -1,3 +1,5 @@
+import logging
+
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
@@ -8,6 +10,8 @@ from app.models.user import User
 from app.research.exceptions import ResearchPipelineError, VectorStoreError
 from app.research.retrieval.schemas import RetrievalResponse, SearchQuery
 from app.research.services.retrieval_service import RetrievalService
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(
     prefix="/projects/{project_id}/search",
@@ -59,11 +63,13 @@ async def search_project(
             detail=str(exc),
         ) from exc
     except (VectorStoreError, ResearchPipelineError) as exc:
+        logger.error("Retrieval pipeline failure for project %s: %s", project.id, exc)
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=f"Retrieval engine error: {exc}",
+            detail="Retrieval service encountered an error while processing the request.",
         ) from exc
     except Exception as exc:
+        logger.exception("Unexpected error during retrieval processing for project %s: %s", project.id, exc)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Internal error during retrieval processing.",

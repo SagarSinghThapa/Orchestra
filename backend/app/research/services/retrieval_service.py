@@ -132,7 +132,7 @@ class RetrievalService:
             candidates = candidates[: query_input.limit]
 
         # 6. Build citation-ready provenance evidence
-        citations = self.citation_builder.build_citations(candidates)
+        citations = self.citation_builder.build_citations(candidates, project_id=project_id)
 
         return RetrievalResponse(
             query=query_input.query,

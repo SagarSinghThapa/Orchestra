@@ -72,52 +72,97 @@ class TestRerankers:
 class TestChunkDeduplicator:
     def test_exact_chunk_id_deduplication(self):
         dedup = ChunkDeduplicator()
-        c1 = _make_chunk("chunk_1", start=0, end=100, text="Text for chunk 1", score=0.9)
-        c2 = _make_chunk("chunk_1", start=0, end=100, text="Text for chunk 1 duplicate", score=0.7)  # Duplicate ID
-        c3 = _make_chunk("chunk_2", start=100, end=200, text="Distinct text for chunk 2", score=0.8)
+        c1 = _make_chunk("chunk_1", doc_id=1, page=1, start=0, end=100, text="Text for chunk 1", score=0.9)
+        c2 = _make_chunk("chunk_1", doc_id=2, page=5, start=0, end=100, text="Different text duplicate ID", score=0.7)
+        c3 = _make_chunk("chunk_2", doc_id=1, page=1, start=100, end=200, text="Distinct text for chunk 2", score=0.8)
 
         accepted = dedup.deduplicate_chunks([c1, c2, c3])
         assert len(accepted) == 2
         assert [c.chunk_id for c in accepted] == ["chunk_1", "chunk_2"]
 
-    def test_exact_text_deduplication(self):
+    def test_exact_text_deduplication_same_provenance(self):
         dedup = ChunkDeduplicator()
-        c1 = _make_chunk("chunk_1", text="Exact duplicate text across docs", score=0.9)
-        c2 = _make_chunk("chunk_2", text="Exact duplicate text across docs", score=0.8)
+        c1 = _make_chunk("chunk_1", doc_id=1, page=1, text="Exact duplicate text same page", score=0.9)
+        c2 = _make_chunk("chunk_2", doc_id=1, page=1, text="Exact duplicate text same page", score=0.8)
 
         accepted = dedup.deduplicate_chunks([c1, c2])
         assert len(accepted) == 1
         assert accepted[0].chunk_id == "chunk_1"
 
-    def test_subsumed_overlap_suppression_at_90_percent(self):
+    def test_cross_document_identical_text_retained(self):
+        """Fix 1: Identical text appearing in different documents represents independent evidence and must not be collapsed."""
+        dedup = ChunkDeduplicator()
+        text = "The model achieved 94% accuracy."
+        c1 = _make_chunk("chunk_docA_p2", doc_id=10, page=2, text=text, score=0.92)
+        c2 = _make_chunk("chunk_docB_p8", doc_id=20, page=8, text=text, score=0.85)
+
+        accepted = dedup.deduplicate_chunks([c1, c2])
+        assert len(accepted) == 2
+        assert accepted[0].chunk_id == "chunk_docA_p2"
+        assert accepted[1].chunk_id == "chunk_docB_p8"
+
+    def test_cross_page_identical_text_retained(self):
+        """Fix 1: Identical text on different pages of the same document must remain independently retrievable."""
+        dedup = ChunkDeduplicator()
+        text = "Recurring header or repeated finding across chapters."
+        c1 = _make_chunk("chunk_p1", doc_id=1, page=1, text=text, score=0.90)
+        c2 = _make_chunk("chunk_p2", doc_id=1, page=2, text=text, score=0.80)
+
+        accepted = dedup.deduplicate_chunks([c1, c2])
+        assert len(accepted) == 2
+        assert accepted[0].chunk_id == "chunk_p1"
+        assert accepted[1].chunk_id == "chunk_p2"
+
+    def test_short_accepted_and_long_candidate_retained(self):
+        """Fix 2: Accepted chunk is 50 chars, candidate is 500 chars (overlap 50 chars). Candidate must NOT be suppressed."""
         dedup = ChunkDeduplicator(max_containment_ratio=0.90)
-        # c1 covers chars 0-100 on page 1
-        c1 = _make_chunk("c1", doc_id=1, page=1, start=0, end=100, text="A" * 100, score=0.9)
-        # c2 covers chars 5-95 (length 90) on page 1 -> 100% contained inside c1
-        c2 = _make_chunk("c2", doc_id=1, page=1, start=5, end=95, text="B" * 90, score=0.8)
+        # Accepted chunk: 50 chars
+        c1 = _make_chunk("short_accepted", doc_id=1, page=1, start=0, end=50, text="A" * 50, score=0.95)
+        # Candidate chunk: 500 chars (50 chars overlap / 500 chars candidate = 0.10 containment < 0.90)
+        c2 = _make_chunk("long_candidate", doc_id=1, page=1, start=0, end=500, text="A" * 50 + "B" * 450, score=0.85)
+
+        accepted = dedup.deduplicate_chunks([c1, c2])
+        assert len(accepted) == 2
+        assert accepted[0].chunk_id == "short_accepted"
+        assert accepted[1].chunk_id == "long_candidate"
+
+    def test_long_accepted_and_nearly_contained_short_candidate_suppressed(self):
+        """Fix 2: Accepted chunk is 500 chars, candidate is 50 chars nearly contained. Candidate MUST be suppressed."""
+        dedup = ChunkDeduplicator(max_containment_ratio=0.90)
+        # Accepted chunk: 500 chars (0-500)
+        c1 = _make_chunk("long_accepted", doc_id=1, page=1, start=0, end=500, text="A" * 500, score=0.95)
+        # Candidate chunk: 50 chars (10-60) -> 100% overlap with c1
+        c2 = _make_chunk("short_candidate", doc_id=1, page=1, start=10, end=60, text="A" * 50, score=0.80)
 
         accepted = dedup.deduplicate_chunks([c1, c2])
         assert len(accepted) == 1
-        assert accepted[0].chunk_id == "c1"
+        assert accepted[0].chunk_id == "long_accepted"
 
     def test_moderate_adjacent_overlap_retained(self):
+        """Fix 2: Moderate overlap below 90% (e.g. 20%) must be retained."""
         dedup = ChunkDeduplicator(max_containment_ratio=0.90)
-        # c1 covers chars 0-100
         c1 = _make_chunk("c1", doc_id=1, page=1, start=0, end=100, text="A" * 100, score=0.9)
-        # c2 covers chars 80-180 (overlap is 20 chars, containment is 20/100 = 0.20 < 0.90)
         c2 = _make_chunk("c2", doc_id=1, page=1, start=80, end=180, text="C" * 100, score=0.85)
 
         accepted = dedup.deduplicate_chunks([c1, c2])
-        # Both must be retained to avoid discarding unique evidence!
         assert len(accepted) == 2
         assert accepted[0].chunk_id == "c1"
         assert accepted[1].chunk_id == "c2"
 
-    def test_disjoint_pages_retained(self):
+    def test_overlap_different_pages_both_retained(self):
+        """Fix 2: Candidates on different pages are not subject to overlap suppression."""
         dedup = ChunkDeduplicator(max_containment_ratio=0.90)
-        # Same offsets but different pages
-        c1 = _make_chunk("c1", doc_id=1, page=1, start=0, end=100, text="Page 1 text", score=0.9)
-        c2 = _make_chunk("c2", doc_id=1, page=2, start=0, end=100, text="Page 2 text", score=0.8)
+        c1 = _make_chunk("c1", doc_id=1, page=1, start=0, end=100, text="Page 1", score=0.9)
+        c2 = _make_chunk("c2", doc_id=1, page=2, start=0, end=100, text="Page 2", score=0.8)
+
+        accepted = dedup.deduplicate_chunks([c1, c2])
+        assert len(accepted) == 2
+
+    def test_overlap_different_documents_both_retained(self):
+        """Fix 2: Candidates in different documents are not subject to overlap suppression."""
+        dedup = ChunkDeduplicator(max_containment_ratio=0.90)
+        c1 = _make_chunk("c1", doc_id=1, page=1, start=0, end=100, text="Doc 1", score=0.9)
+        c2 = _make_chunk("c2", doc_id=2, page=1, start=0, end=100, text="Doc 2", score=0.8)
 
         accepted = dedup.deduplicate_chunks([c1, c2])
         assert len(accepted) == 2
@@ -153,7 +198,7 @@ class TestCitationAnchorBuilder:
         ]
 
         builder = CitationAnchorBuilder(db_session)
-        citations = builder.build_citations(candidates)
+        citations = builder.build_citations(candidates, project_id=test_project.id)
 
         assert len(citations) == 2
 
@@ -178,3 +223,49 @@ class TestCitationAnchorBuilder:
         assert cite2.end_char == 200
         assert cite2.text == "Distributed consensus algorithms"
         assert cite2.score == 0.88
+
+    def test_citation_project_defense_in_depth_no_foreign_metadata_leakage(
+        self, db_session: Session, test_user: User, test_project: Project, test_project_b: Project
+    ):
+        """Fix 3: Retrieval candidate referencing foreign Project B document must never leak Project B metadata."""
+        # Project A document
+        doc_a = Document(
+            project_id=test_project.id,
+            original_filename="project_a_public_report.pdf",
+            storage_key="projects/a/report.pdf",
+            content_type="application/pdf",
+            size_bytes=1000,
+            checksum="hash_proj_a",
+        )
+        # Foreign Project B document containing confidential information
+        doc_b = Document(
+            project_id=test_project_b.id,
+            original_filename="confidential_secret_project_b.pdf",
+            storage_key="projects/b/secret.pdf",
+            content_type="application/pdf",
+            size_bytes=2000,
+            checksum="hash_proj_b",
+        )
+        db_session.add_all([doc_a, doc_b])
+        db_session.commit()
+        db_session.refresh(doc_a)
+        db_session.refresh(doc_b)
+
+        # Candidates contain 1 valid Project A candidate, plus 1 corrupted/foreign candidate pointing to doc_b
+        candidates = [
+            _make_chunk("chk_valid_a", doc_id=doc_a.id, page=1, text="Legitimate Project A chunk", score=0.9),
+            _make_chunk("chk_foreign_b", doc_id=doc_b.id, page=1, text="Foreign candidate chunk", score=0.8),
+        ]
+
+        builder = CitationAnchorBuilder(db_session)
+        citations = builder.build_citations(candidates, project_id=test_project.id)
+
+        # Must only return Project A citation; foreign document is dropped and its filename is NEVER returned
+        assert len(citations) == 1
+        assert citations[0].document_id == doc_a.id
+        assert citations[0].document_filename == "project_a_public_report.pdf"
+
+        # Explicit assertion proving Project B filename is nowhere in the result
+        for cite in citations:
+            assert cite.document_filename != "confidential_secret_project_b.pdf"
+            assert "secret" not in cite.document_filename

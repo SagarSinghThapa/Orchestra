@@ -8,9 +8,11 @@ class ChunkDeduplicator:
     Deduplicates retrieval candidates with exact ID matching and conservative overlap suppression.
     
     Guarantees:
-    - Always eliminates exact duplicate chunk_ids.
-    - Suppresses near-identical overlapping spans only when span containment >= 90%,
-      ensuring that adjacent chunks containing meaningful unique evidence are never discarded.
+    - Always eliminates exact duplicate chunk_ids globally.
+    - Suppresses identical text scoped to the same provenance (document_id, page_number)
+      so identical citations across different documents or pages are preserved.
+    - Suppresses candidate chunks only when the candidate itself is >=90% contained inside
+      an already-accepted higher-ranked chunk on the same document and page.
     """
 
     def __init__(self, max_containment_ratio: float = 0.90) -> None:
@@ -24,21 +26,23 @@ class ChunkDeduplicator:
             return []
 
         seen_chunk_ids: set[str] = set()
-        seen_texts: set[str] = set()
+        seen_provenance_texts: set[tuple[int, Optional[int], str]] = set()
         accepted_candidates: list[SearchResultChunk] = []
 
         for candidate in candidates:
-            # 1. Exact chunk_id deduplication
+            # 1. Exact chunk_id deduplication (global)
             if candidate.chunk_id in seen_chunk_ids:
                 continue
 
-            # 2. Exact identical text deduplication
+            # 2. Exact identical text duplicate suppression (scoped to provenance: doc + page)
             clean_text = candidate.text.strip()
-            if clean_text in seen_texts:
+            prov_key = (candidate.document_id, candidate.page_number, clean_text)
+            if prov_key in seen_provenance_texts:
                 continue
 
             # 3. High-containment overlap check with already-accepted higher-ranked chunks
-            # Only evaluated for chunks from the EXACT same document and page
+            # Candidate containment asks: "How much of the CANDIDATE is already covered?"
+            # Only evaluated for chunks from the EXACT same document and page.
             subsumed = False
             c_start = candidate.start_char
             c_end = candidate.end_char
@@ -51,7 +55,6 @@ class ChunkDeduplicator:
                 ):
                     a_start = accepted.start_char
                     a_end = accepted.end_char
-                    a_len = max(1, a_end - a_start)
 
                     # Compute character span overlap
                     overlap_start = max(c_start, a_start)
@@ -59,9 +62,8 @@ class ChunkDeduplicator:
                     overlap_chars = max(0, overlap_end - overlap_start)
 
                     if overlap_chars > 0:
-                        min_len = min(c_len, a_len)
-                        containment = overlap_chars / min_len
-                        if containment >= self.max_containment_ratio:
+                        candidate_containment = overlap_chars / c_len
+                        if candidate_containment >= self.max_containment_ratio:
                             # Candidate is >=90% subsumed by a higher-ranked chunk on same page
                             subsumed = True
                             break
@@ -70,7 +72,7 @@ class ChunkDeduplicator:
                 continue
 
             seen_chunk_ids.add(candidate.chunk_id)
-            seen_texts.add(clean_text)
+            seen_provenance_texts.add(prov_key)
             accepted_candidates.append(candidate)
 
         return accepted_candidates

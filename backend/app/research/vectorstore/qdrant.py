@@ -195,8 +195,6 @@ class QdrantVectorStore:
         Searches vectors enforcing strict project-level isolation and optional document filtering.
         """
         client = await self._get_client()
-        if not await client.collection_exists(self.collection_name):
-            return []
 
         must_conditions: list[models.Condition] = [
             models.FieldCondition(
@@ -215,6 +213,9 @@ class QdrantVectorStore:
         filter_criteria = models.Filter(must=must_conditions)
 
         try:
+            if not await client.collection_exists(self.collection_name):
+                return []
+
             if hasattr(client, "query_points"):
                 response = await client.query_points(
                     collection_name=self.collection_name,
@@ -246,8 +247,7 @@ class QdrantVectorStore:
         Enforces project tenant isolation and safety bounds to prevent memory starvation.
         """
         client = await self._get_client()
-        if not await client.collection_exists(self.collection_name):
-            return []
+
         must_conditions: list[models.Condition] = [
             models.FieldCondition(
                 key="project_id",
@@ -267,6 +267,9 @@ class QdrantVectorStore:
         offset = None
 
         try:
+            if not await client.collection_exists(self.collection_name):
+                return []
+
             while True:
                 records, next_offset = await client.scroll(
                     collection_name=self.collection_name,

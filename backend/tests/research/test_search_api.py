@@ -2,6 +2,7 @@ import pytest
 from fastapi import status
 from fastapi.testclient import TestClient
 
+from app.models.document import Document
 from app.models.project import Project
 from app.models.user import User
 
@@ -275,3 +276,174 @@ class TestSearchAPI:
         )
         assert r_after.status_code == status.HTTP_200_OK
         assert r_after.json()["total_results"] == 0
+
+    def test_reindex_freshness_lifecycle(
+        self,
+        client: TestClient,
+        set_auth,
+        test_user: User,
+        test_project: Project,
+        test_storage,
+        db_session,
+    ):
+        """Fix 4: Reindex freshness regression test. Verifies old chunks are purged and new representation is indexed."""
+        set_auth(test_user)
+
+        # 1. Upload initial document representation
+        initial_content = b"LegacyInitialRepresentation keyword alpha beta obsolete evidence."
+        r_upload = client.post(
+            f"/projects/{test_project.id}/documents",
+            files={"file": ("reindexed_doc.txt", initial_content, "text/plain")},
+        )
+        assert r_upload.status_code == status.HTTP_201_CREATED
+        doc_id = r_upload.json()["id"]
+
+        # 2. Search and capture old evidence in both sparse and hybrid modes
+        r_old_sparse = client.post(
+            f"/projects/{test_project.id}/search",
+            json={"query": "LegacyInitialRepresentation", "mode": "sparse"},
+        )
+        assert r_old_sparse.status_code == status.HTTP_200_OK
+        assert r_old_sparse.json()["total_results"] >= 1
+        assert "LegacyInitialRepresentation" in r_old_sparse.json()["results"][0]["text"]
+        old_chunk_id = r_old_sparse.json()["results"][0]["chunk_id"]
+
+        r_old_hybrid = client.post(
+            f"/projects/{test_project.id}/search",
+            json={"query": "LegacyInitialRepresentation", "mode": "hybrid"},
+        )
+        assert r_old_hybrid.status_code == status.HTTP_200_OK
+        assert r_old_hybrid.json()["total_results"] >= 1
+
+        # 3. Update storage representation of the document
+        doc = db_session.query(Document).filter(Document.id == doc_id).first()
+        updated_content = b"UpdatedFreshRepresentation modern active evidence delta epsilon."
+        test_storage.save(updated_content, doc.storage_key)
+
+        # 4. Trigger reindex via existing supported endpoint
+        r_reindex = client.post(f"/projects/{test_project.id}/documents/{doc_id}/reindex")
+        assert r_reindex.status_code == status.HTTP_200_OK
+
+        # 5. Search again: verify old chunks are NO LONGER retrievable
+        # In sparse retrieval (BM25), the old keyword matches 0 chunks because BM25 rebuilt from fresh Qdrant payloads
+        r_new_old_sparse = client.post(
+            f"/projects/{test_project.id}/search",
+            json={"query": "LegacyInitialRepresentation", "mode": "sparse"},
+        )
+        assert r_new_old_sparse.status_code == status.HTTP_200_OK
+        assert r_new_old_sparse.json()["total_results"] == 0
+
+        # In hybrid retrieval, verify no returned candidate contains the old text or old chunk_id
+        r_new_old_hybrid = client.post(
+            f"/projects/{test_project.id}/search",
+            json={"query": "LegacyInitialRepresentation", "mode": "hybrid"},
+        )
+        assert r_new_old_hybrid.status_code == status.HTTP_200_OK
+        for res in r_new_old_hybrid.json()["results"]:
+            assert "LegacyInitialRepresentation" not in res["text"]
+            assert "UpdatedFreshRepresentation" in res["text"]
+
+        # 6. Verify current fresh chunks ARE retrievable in both sparse and hybrid modes
+        r_fresh_sparse = client.post(
+            f"/projects/{test_project.id}/search",
+            json={"query": "UpdatedFreshRepresentation", "mode": "sparse"},
+        )
+        assert r_fresh_sparse.status_code == status.HTTP_200_OK
+        assert r_fresh_sparse.json()["total_results"] >= 1
+        assert "UpdatedFreshRepresentation" in r_fresh_sparse.json()["results"][0]["text"]
+
+        r_fresh_hybrid = client.post(
+            f"/projects/{test_project.id}/search",
+            json={"query": "UpdatedFreshRepresentation", "mode": "hybrid"},
+        )
+        assert r_fresh_hybrid.status_code == status.HTTP_200_OK
+        assert r_fresh_hybrid.json()["total_results"] >= 1
+        assert "UpdatedFreshRepresentation" in r_fresh_hybrid.json()["results"][0]["text"]
+
+    def test_search_foreign_document_filter_isolation(
+        self,
+        client: TestClient,
+        set_auth,
+        test_user: User,
+        test_project: Project,
+        test_user_b: User,
+        test_project_b: Project,
+    ):
+        """Fix 5: User owns Project A, Project B contains Document B. Search scoped to Project A with Document B ID returns zero evidence."""
+        # 1. Ingest confidential document B into Project B (owned by User B)
+        set_auth(test_user_b)
+        r_upload_b = client.post(
+            f"/projects/{test_project_b.id}/documents",
+            files={"file": ("project_b_confidential.txt", b"HighlyConfidentialProjectBKeyword data", "text/plain")},
+        )
+        assert r_upload_b.status_code == status.HTTP_201_CREATED
+        doc_b_id = r_upload_b.json()["id"]
+
+        # 2. Ingest public document A into Project A (owned by User A)
+        set_auth(test_user)
+        r_upload_a = client.post(
+            f"/projects/{test_project.id}/documents",
+            files={"file": ("project_a_public.txt", b"PublicProjectAContent information", "text/plain")},
+        )
+        assert r_upload_a.status_code == status.HTTP_201_CREATED
+        doc_a_id = r_upload_a.json()["id"]
+
+        # 3. User A searches Project A but specifies foreign document_ids=[doc_b_id]
+        # Must return 0 evidence and NO Project B metadata/filename leakage in hybrid, sparse, and dense modes
+        for mode in ("hybrid", "sparse", "dense"):
+            r_search = client.post(
+                f"/projects/{test_project.id}/search",
+                json={
+                    "query": "HighlyConfidentialProjectBKeyword",
+                    "mode": mode,
+                    "document_ids": [doc_b_id],
+                },
+            )
+            assert r_search.status_code == status.HTTP_200_OK
+            data = r_search.json()
+            assert data["total_results"] == 0
+            assert data["results"] == []
+
+        # 4. Search with general query matching both texts, filtered to foreign doc_b_id
+        r_search_general = client.post(
+            f"/projects/{test_project.id}/search",
+            json={
+                "query": "information data keyword",
+                "mode": "hybrid",
+                "document_ids": [doc_b_id],
+            },
+        )
+        assert r_search_general.status_code == status.HTTP_200_OK
+        assert r_search_general.json()["total_results"] == 0
+        assert r_search_general.json()["results"] == []
+
+    def test_search_error_sanitization_no_raw_leak(
+        self,
+        client: TestClient,
+        set_auth,
+        test_user: User,
+        test_project: Project,
+        monkeypatch,
+    ):
+        """Optional fix: Controlled retrieval error message without raw database URLs or credentials."""
+        set_auth(test_user)
+
+        from app.research.exceptions import VectorStoreError
+        from app.research.services.retrieval_service import RetrievalService
+
+        async def _mock_search_fail(*args, **kwargs):
+            raise VectorStoreError("CRITICAL_LEAK: qdrant://admin:super_secret_password@db-node.internal:6333/failed")
+
+        monkeypatch.setattr(RetrievalService, "search", _mock_search_fail)
+
+        r = client.post(
+            f"/projects/{test_project.id}/search",
+            json={"query": "test query"},
+        )
+        assert r.status_code == status.HTTP_502_BAD_GATEWAY
+        detail = r.json()["detail"]
+        assert detail == "Retrieval service encountered an error while processing the request."
+        assert "admin" not in detail
+        assert "super_secret_password" not in detail
+        assert "CRITICAL_LEAK" not in detail
+

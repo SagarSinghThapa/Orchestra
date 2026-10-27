@@ -21,21 +21,35 @@ STOPWORDS = frozenset({
     "your", "yours", "yourself", "yourselves"
 })
 
-# Matches alphanumeric words and technical identifiers (preserving underscores)
-TOKEN_PATTERN = re.compile(r"[a-zA-Z0-9_]+")
+# Matches alphanumeric words, Unicode scripts, and technical identifiers (preserving underscores)
+TOKEN_PATTERN = re.compile(r"\w+")
 
 
 def tokenize(text: str, remove_stopwords: bool = True) -> list[str]:
     """
     Standardizes and tokenizes text for lexical search.
     Preserves original source text by working on normalized copies.
+    Supports full Unicode word tokens including combining marks (accented Latin,
+    Devanagari, etc.), numbers, and technical identifiers (preserving underscores).
     """
     if not text:
         return []
     # Canonical Unicode NFC normalization
-    normalized = unicodedata.normalize("NFC", text)
-    # Extract lowercased tokens
-    tokens = TOKEN_PATTERN.findall(normalized.lower())
+    normalized = unicodedata.normalize("NFC", text.lower())
+
+    tokens: list[str] = []
+    current: list[str] = []
+    for char in normalized:
+        # L: Letters, M: Combining Marks (diacritics/vowels), N: Numbers, '_': identifiers
+        if unicodedata.category(char)[0] in ("L", "M", "N") or char == "_":
+            current.append(char)
+        else:
+            if current:
+                tokens.append("".join(current))
+                current = []
+    if current:
+        tokens.append("".join(current))
+
     if remove_stopwords:
         tokens = [t for t in tokens if t not in STOPWORDS]
     return tokens
