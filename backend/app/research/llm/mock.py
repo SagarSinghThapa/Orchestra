@@ -114,6 +114,46 @@ class DeterministicTestLLMProvider(LLMProvider):
                 "has_sufficient_evidence": True,
             })
 
+        if self.mode == "repair_success":
+            # On first synthesis call (call_count <= 2 after plan), return invalid citation
+            # On repair call (call_count >= 3), return valid citation
+            if self.call_count <= 2:
+                return schema.model_validate({
+                    "claims": [
+                        {
+                            "claim_text": "This first attempt references invalid citation.",
+                            "supporting_evidence_ids": ["evidence_9999"],
+                        }
+                    ],
+                    "summary_notes": "First attempt with invalid citation.",
+                    "has_sufficient_evidence": True,
+                })
+            else:
+                primary_id = evidence_ids[0] if evidence_ids else "evidence_1"
+                return schema.model_validate({
+                    "claims": [
+                        {
+                            "claim_text": "Repaired claim with valid citation.",
+                            "supporting_evidence_ids": [primary_id],
+                        }
+                    ],
+                    "summary_notes": "Repaired grounded claim.",
+                    "has_sufficient_evidence": True,
+                })
+
+        if self.mode == "bypass_attempt":
+            primary_id = evidence_ids[0] if evidence_ids else "evidence_1"
+            return schema.model_validate({
+                "claims": [
+                    {
+                        "claim_text": "Supported grounded fact from evidence.",
+                        "supporting_evidence_ids": [primary_id],
+                    }
+                ],
+                "summary_notes": "Unsupported hallucinated extra prose that must not appear in final answer.",
+                "has_sufficient_evidence": True,
+            })
+
         if self.mode == "unsupported_claim":
             return schema.model_validate({
                 "claims": [

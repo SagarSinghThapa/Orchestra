@@ -1,6 +1,7 @@
 import logging
 from typing import TYPE_CHECKING
 
+from app.research.exceptions import ResearchPipelineError
 from app.research.llm.base import LLMProvider
 from app.research.prompts.synthesizer import (
     SYNTHESIS_SYSTEM_PROMPT,
@@ -63,9 +64,7 @@ class ResearchSynthesizer:
                     system_prompt=SYNTHESIS_SYSTEM_PROMPT,
                 )
             except Exception as retry_exc:
-                logger.error("Grounded synthesis repair retry failed: %s; falling back to insufficient evidence", retry_exc)
-                return DraftResearchAnswer(
-                    claims=[],
-                    summary_notes=f"Synthesis failed validation: {retry_exc}",
-                    has_sufficient_evidence=False,
-                )
+                logger.error("Grounded synthesis repair retry failed: %s", retry_exc)
+                raise ResearchPipelineError(
+                    f"Grounded synthesis failed after retry: {retry_exc}"
+                ) from retry_exc

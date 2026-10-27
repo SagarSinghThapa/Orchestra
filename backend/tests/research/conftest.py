@@ -175,13 +175,36 @@ def test_retrieval_service(
 
 
 @pytest.fixture
+def test_llm_provider():
+    """Deterministic offline LLM provider for test suite."""
+    from app.research.llm.mock import DeterministicTestLLMProvider
+
+    return DeterministicTestLLMProvider()
+
+
+@pytest.fixture
+def test_research_service(
+    db_session: Session, test_retrieval_service, test_llm_provider
+):
+    """Configured test ResearchService with isolated retrieval and deterministic LLM."""
+    from app.research.services.research_service import ResearchService
+
+    return ResearchService(
+        db=db_session,
+        retrieval_service=test_retrieval_service,
+        llm_provider=test_llm_provider,
+    )
+
+
+@pytest.fixture
 def client(
-    db_session: Session, test_ingestion_service, test_retrieval_service
+    db_session: Session, test_ingestion_service, test_retrieval_service, test_research_service
 ) -> Generator[TestClient, None, None]:
-    """TestClient overriding get_db, get_ingestion_service, and get_retrieval_service."""
+    """TestClient overriding get_db, get_ingestion_service, get_retrieval_service, and get_research_service."""
     from app.auth.dependencies import get_current_user
     from app.api.documents import get_ingestion_service
     from app.api.search import get_retrieval_service
+    from app.api.research import get_research_service
 
     def _override_get_db():
         yield db_session
@@ -189,6 +212,7 @@ def client(
     app.dependency_overrides[get_db] = _override_get_db
     app.dependency_overrides[get_ingestion_service] = lambda: test_ingestion_service
     app.dependency_overrides[get_retrieval_service] = lambda: test_retrieval_service
+    app.dependency_overrides[get_research_service] = lambda: test_research_service
 
     with TestClient(app) as test_client:
         yield test_client
@@ -196,6 +220,7 @@ def client(
     app.dependency_overrides.pop(get_db, None)
     app.dependency_overrides.pop(get_ingestion_service, None)
     app.dependency_overrides.pop(get_retrieval_service, None)
+    app.dependency_overrides.pop(get_research_service, None)
     app.dependency_overrides.pop(get_current_user, None)
 
 

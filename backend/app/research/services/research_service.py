@@ -118,6 +118,7 @@ class ResearchService:
             verified_citations_count=len(citations),
             execution_time_ms=execution_time_ms,
             llm_call_count=llm_calls,
+            repair_count=final_state.get("repair_count", 0),
         )
 
         raw_status = final_state.get("status", ResearchStatus.INSUFFICIENT_EVIDENCE.value)

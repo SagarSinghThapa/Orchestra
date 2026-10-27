@@ -16,6 +16,7 @@ class ResearchRequest(BaseModel):
     """
     question: str = Field(
         ...,
+        min_length=3,
         max_length=1000,
         description="User research inquiry",
     )
@@ -110,6 +111,7 @@ class ResearchMetadata(BaseModel):
     verified_citations_count: int
     execution_time_ms: float
     llm_call_count: int
+    repair_count: int = 0
 
     model_config = ConfigDict(extra="forbid")
 
