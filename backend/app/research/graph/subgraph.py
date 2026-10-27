@@ -1,6 +1,6 @@
 import logging
 import time
-from typing import Any
+from typing import Any, Optional
 
 from langgraph.graph import END, START, StateGraph
 
@@ -16,16 +16,18 @@ from app.research.agents.verifier import (
     CitationVerifier,
 )
 from app.research.graph.state import ResearchState
+from app.research.llm.budget import LLMCallBudget
 from app.research.schemas import DraftResearchAnswer, ResearchStatus
 
 logger = logging.getLogger(__name__)
 
 
-def create_plan_node(planner: ResearchPlanner):
+def create_plan_node(planner: ResearchPlanner, call_budget: Optional[LLMCallBudget] = None):
     async def plan_node(state: ResearchState) -> dict[str, Any]:
         plan = await planner.plan(
             question=state["question"],
             max_subqueries=state.get("max_subqueries", 3),
+            call_budget=call_budget,
         )
         return {
             "subqueries": plan.subqueries,
@@ -64,13 +66,14 @@ def create_select_node(selector: EvidenceSelector):
     return select_node
 
 
-def create_synthesize_node(synthesizer: ResearchSynthesizer):
+def create_synthesize_node(synthesizer: ResearchSynthesizer, call_budget: Optional[LLMCallBudget] = None):
     async def synthesize_node(state: ResearchState) -> dict[str, Any]:
         raw_evidence = state.get("selected_evidence", [])
         evidence_items = [AggregatedEvidence.model_validate(e) for e in raw_evidence]
         draft = await synthesizer.synthesize(
             question=state["question"],
             evidence=evidence_items,
+            call_budget=call_budget,
         )
         return {
             "draft_answer": draft.model_dump(),
@@ -118,20 +121,36 @@ def create_verify_node(verifier: CitationVerifier):
     return verify_node
 
 
-def create_repair_node(synthesizer: ResearchSynthesizer):
+def create_repair_node(synthesizer: ResearchSynthesizer, call_budget: Optional[LLMCallBudget] = None):
     async def repair_node(state: ResearchState) -> dict[str, Any]:
         raw_evidence = state.get("selected_evidence", [])
         evidence_items = [AggregatedEvidence.model_validate(e) for e in raw_evidence]
         current_repairs = state.get("repair_count", 0)
 
-        draft = await synthesizer.synthesize(
-            question=state["question"],
-            evidence=evidence_items,
-        )
-        return {
-            "draft_answer": draft.model_dump(),
-            "repair_count": current_repairs + 1,
-        }
+        # Hard circuit breaker: if call budget exhausted, do not attempt repair generation
+        if call_budget is not None and call_budget.remaining <= 0:
+            logger.warning("LLM call budget exhausted; skipping citation repair generation")
+            return {
+                "draft_answer": None,
+                "repair_count": current_repairs + 1,
+            }
+
+        try:
+            draft = await synthesizer.synthesize(
+                question=state["question"],
+                evidence=evidence_items,
+                call_budget=call_budget,
+            )
+            return {
+                "draft_answer": draft.model_dump(),
+                "repair_count": current_repairs + 1,
+            }
+        except Exception as exc:
+            logger.warning("Citation repair synthesis failed: %s; dropping draft answer", exc)
+            return {
+                "draft_answer": None,
+                "repair_count": current_repairs + 1,
+            }
 
     return repair_node
 
@@ -169,19 +188,21 @@ def compile_research_subgraph(
     selector: EvidenceSelector,
     synthesizer: ResearchSynthesizer,
     verifier: CitationVerifier,
+    call_budget: Optional[LLMCallBudget] = None,
 ):
     """
     Compiles and returns the LangGraph Research Subgraph.
-    Enforces strictly bounded conditional transitions and maximum 1 repair cycle.
+    Enforces strictly bounded conditional transitions, maximum 1 repair cycle,
+    and hard runtime LLM call-budget limits.
     """
     graph = StateGraph(ResearchState)
 
-    graph.add_node("plan", create_plan_node(planner))
+    graph.add_node("plan", create_plan_node(planner, call_budget=call_budget))
     graph.add_node("retrieve", create_retrieve_node(aggregator))
     graph.add_node("select", create_select_node(selector))
-    graph.add_node("synthesize", create_synthesize_node(synthesizer))
+    graph.add_node("synthesize", create_synthesize_node(synthesizer, call_budget=call_budget))
     graph.add_node("verify", create_verify_node(verifier))
-    graph.add_node("repair", create_repair_node(synthesizer))
+    graph.add_node("repair", create_repair_node(synthesizer, call_budget=call_budget))
     graph.add_node("insufficient_evidence", insufficient_evidence_node)
     graph.add_node("finalize", finalize_node)
 

@@ -1,8 +1,9 @@
 import logging
-from typing import TYPE_CHECKING
+from typing import Optional, TYPE_CHECKING
 
 from app.research.exceptions import ResearchPipelineError
 from app.research.llm.base import LLMProvider
+from app.research.llm.budget import LLMCallBudget, LLMCallBudgetExceededError
 from app.research.prompts.synthesizer import (
     SYNTHESIS_SYSTEM_PROMPT,
     build_synthesis_user_prompt,
@@ -28,10 +29,12 @@ class ResearchSynthesizer:
         self,
         question: str,
         evidence: list["AggregatedEvidence"],
+        call_budget: Optional[LLMCallBudget] = None,
     ) -> DraftResearchAnswer:
         """
         Executes grounded synthesis against selected evidence chunks.
         Falls back to insufficient evidence if evidence is empty or synthesis fails after 1 retry.
+        Enforces runtime LLM call budget across initial and retry attempts.
         """
         if not evidence:
             return DraftResearchAnswer(
@@ -43,13 +46,21 @@ class ResearchSynthesizer:
         prompt = build_synthesis_user_prompt(question=question, evidence_items=evidence)
 
         try:
+            if call_budget:
+                call_budget.consume()
             return await self.llm_provider.generate_structured(
                 prompt=prompt,
                 schema=DraftResearchAnswer,
                 system_prompt=SYNTHESIS_SYSTEM_PROMPT,
             )
+        except LLMCallBudgetExceededError:
+            raise
         except Exception as exc:
             logger.warning("Grounded synthesis initial attempt failed: %s; attempting 1 bounded repair", exc)
+
+            if call_budget and call_budget.remaining <= 0:
+                logger.warning("LLM call budget exhausted; skipping synthesis repair retry")
+                raise LLMCallBudgetExceededError("LLM call budget exhausted during synthesis retry")
 
             # Bounded repair retry (max 1 retry)
             repair_prompt = (
@@ -58,11 +69,15 @@ class ResearchSynthesizer:
                 f"Please output valid JSON matching the DraftResearchAnswer schema exactly."
             )
             try:
+                if call_budget:
+                    call_budget.consume()
                 return await self.llm_provider.generate_structured(
                     prompt=repair_prompt,
                     schema=DraftResearchAnswer,
                     system_prompt=SYNTHESIS_SYSTEM_PROMPT,
                 )
+            except LLMCallBudgetExceededError:
+                raise
             except Exception as retry_exc:
                 logger.error("Grounded synthesis repair retry failed: %s", retry_exc)
                 raise ResearchPipelineError(

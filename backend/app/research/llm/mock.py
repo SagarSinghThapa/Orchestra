@@ -56,6 +56,29 @@ class DeterministicTestLLMProvider(LLMProvider):
                 f"Failed to validate model response as {schema.__name__}: Invalid JSON formatting"
             )
 
+        if self.mode == "pathological_malformed":
+            if self.call_count == 1:
+                return self._generate_plan(prompt, schema)
+            elif self.call_count == 2:
+                raise ResearchPipelineError(
+                    f"Failed to validate model response as {schema.__name__}: Invalid JSON formatting"
+                )
+            elif self.call_count == 3:
+                return schema.model_validate({
+                    "claims": [
+                        {
+                            "claim_text": "Retried draft with invalid citation.",
+                            "supporting_evidence_ids": ["evidence_9999"],
+                        }
+                    ],
+                    "summary_notes": "Retried draft with invalid citation requiring repair.",
+                    "has_sufficient_evidence": True,
+                })
+            else:
+                raise RuntimeError(
+                    f"Fourth or later LLM call occurred (call {self.call_count})! Budget circuit breaker failed."
+                )
+
         schema_name = schema.__name__
 
         if schema_name == "ResearchPlan":

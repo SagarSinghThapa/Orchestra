@@ -5,6 +5,7 @@ from pydantic import ValidationError
 from app.core.config import settings
 from app.research.exceptions import ConfigurationError, ResearchPipelineError
 from app.research.llm.base import ChatMessage, LLMResponse
+from app.research.llm.budget import LLMCallBudget
 from app.research.llm.mock import DeterministicTestLLMProvider
 from app.research.llm.openai import OpenAICompatibleLLMProvider
 from app.research.llm.provider import get_llm_provider
@@ -230,3 +231,89 @@ def test_research_response_serialization():
     assert deserialized.status == ResearchStatus.COMPLETED
     assert len(deserialized.claims) == 1
     assert deserialized.citations[0].document_filename == "paper.pdf"
+
+
+def test_llm_call_budget_enforcement():
+    """
+    FIX 3 Regression Test: Hard LLM Call Budget Enforcement.
+    Verifies that calling consume() beyond the ceiling raises ResearchPipelineError.
+    """
+    budget = LLMCallBudget(max_calls=3)
+    assert budget.remaining == 3
+    assert budget.used_calls == 0
+
+    budget.consume()
+    assert budget.used_calls == 1
+    assert budget.remaining == 2
+
+    budget.consume()
+    assert budget.used_calls == 2
+    assert budget.remaining == 1
+
+    budget.consume()
+    assert budget.used_calls == 3
+    assert budget.remaining == 0
+
+    # 4th call exceeds budget
+    with pytest.raises(ResearchPipelineError, match="LLM call budget exhausted"):
+        budget.consume()
+
+    # Counter remains at 3
+    assert budget.used_calls == 3
+    assert budget.remaining == 0
+
+
+def test_llm_call_budget_concurrent_isolation():
+    """
+    FIX 3 Regression Test: Request-local budget isolation.
+    Proves that Request A's used calls do not mutate or affect Request B's budget.
+    """
+    budget_a = LLMCallBudget(max_calls=3)
+    budget_b = LLMCallBudget(max_calls=3)
+
+    budget_a.consume()
+    budget_a.consume()
+
+    assert budget_a.used_calls == 2
+    assert budget_a.remaining == 1
+
+    # Request B is untouched
+    assert budget_b.used_calls == 0
+    assert budget_b.remaining == 3
+
+    budget_b.consume()
+    assert budget_b.used_calls == 1
+    assert budget_b.remaining == 2
+
+
+@pytest.mark.asyncio
+async def test_openai_provider_error_body_sanitized():
+    """
+    FIX 4 (L-01) Regression Test: Upstream LLM Provider Error Body Sanitization.
+    Proves an upstream body containing sensitive headers or keys
+    ('Authorization: Bearer SUPER_SECRET') is NOT leaked into the raised exception message.
+    """
+    def _leaky_upstream_handler(request):
+        return httpx.Response(
+            500,
+            text='{"error": "Internal upstream crash", "debug": "Authorization: Bearer SUPER_SECRET_TOKEN_DO_NOT_LEAK"}',
+        )
+
+    transport = httpx.MockTransport(_leaky_upstream_handler)
+    async with httpx.AsyncClient(transport=transport) as client:
+        provider = OpenAICompatibleLLMProvider(
+            base_url="https://api.openai.com/v1",
+            api_key="test-key",
+            client=client,
+        )
+
+        with pytest.raises(ResearchPipelineError) as exc_info:
+            await provider.generate_text("Test prompt")
+
+        error_message = str(exc_info.value)
+        # HTTP 500 status is communicated safely
+        assert "500" in error_message
+        # Leaked credentials or raw upstream body are NEVER included
+        assert "SUPER_SECRET" not in error_message
+        assert "Authorization: Bearer" not in error_message
+

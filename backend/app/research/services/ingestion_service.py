@@ -1,3 +1,4 @@
+from datetime import datetime, timedelta
 from typing import Optional
 from sqlalchemy.orm import Session
 
@@ -91,6 +92,10 @@ class IngestionService:
             await self.vector_store.upsert_chunks(chunks, vectors)
 
             # 7. Finalize status to INDEXED
+            now = datetime.utcnow()
+            if document.updated_at and now <= document.updated_at:
+                now = document.updated_at + timedelta(milliseconds=50)
+            document.updated_at = now
             document.status = DocumentStatus.INDEXED.value
             document.chunk_count = len(chunks)
             document.error_message = None

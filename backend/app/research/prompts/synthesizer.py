@@ -1,5 +1,6 @@
-import html
 from typing import TYPE_CHECKING
+
+from app.research.prompts.escaping import escape_prompt_data
 
 if TYPE_CHECKING:
     from app.research.agents.aggregator import AggregatedEvidence
@@ -28,20 +29,14 @@ def build_synthesis_user_prompt(
 ) -> str:
     """
     Builds structured prompt isolating the question and untrusted evidence chunks.
-    Escapes potential XML delimiter collisions within document text.
+    Escapes potential XML delimiter collisions within user question and document text.
     """
-    clean_question = question.strip()
+    safe_question = escape_prompt_data(question.strip())
 
     evidence_blocks: list[str] = []
     for i, item in enumerate(evidence_items):
-        # Delimiter collision defense: escape angle brackets in untrusted text so it cannot break out of <evidence> tags
-        safe_text = (
-            item.text.replace("</evidence>", "&lt;/evidence&gt;")
-            .replace("</UNTRUSTED_RETRIEVED_EVIDENCE>", "&lt;/UNTRUSTED_RETRIEVED_EVIDENCE&gt;")
-            .replace("<SYSTEM_INSTRUCTIONS>", "&lt;SYSTEM_INSTRUCTIONS&gt;")
-        )
-
-        safe_filename = html.escape(item.document_filename)
+        safe_text = escape_prompt_data(item.text)
+        safe_filename = escape_prompt_data(item.document_filename)
         evidence_block = (
             f'<evidence id="evidence_{i}" document_filename="{safe_filename}" page="{item.page_number}">\n'
             f"{safe_text}\n"
@@ -52,7 +47,7 @@ def build_synthesis_user_prompt(
     joined_evidence = "\n".join(evidence_blocks)
 
     return (
-        f"<USER_QUESTION>\n{clean_question}\n</USER_QUESTION>\n\n"
+        f"<USER_QUESTION>\n{safe_question}\n</USER_QUESTION>\n\n"
         f"<UNTRUSTED_RETRIEVED_EVIDENCE>\n{joined_evidence}\n</UNTRUSTED_RETRIEVED_EVIDENCE>\n\n"
         f"Based strictly on the untrusted evidence provided above, synthesize a grounded answer conforming to the DraftResearchAnswer schema."
     )

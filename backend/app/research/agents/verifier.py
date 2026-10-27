@@ -1,4 +1,6 @@
+from datetime import datetime
 import logging
+from typing import Optional
 from sqlalchemy.orm import Session
 
 from app.models.document import Document, DocumentStatus
@@ -25,6 +27,22 @@ class CitationVerifier:
 
     def __init__(self, db: Session) -> None:
         self.db = db
+
+    @staticmethod
+    def _is_timestamp_fresh(
+        retrieved_updated_at: Optional[datetime],
+        current_updated_at: Optional[datetime],
+        tolerance_seconds: float = 0.001,
+    ) -> bool:
+        """
+        Validates whether evidence was captured from the current document index version.
+        Normalizes tzinfo and handles sub-millisecond precision safely.
+        """
+        if retrieved_updated_at is None or current_updated_at is None:
+            return True
+        t1 = retrieved_updated_at.replace(tzinfo=None) if retrieved_updated_at.tzinfo else retrieved_updated_at
+        t2 = current_updated_at.replace(tzinfo=None) if current_updated_at.tzinfo else current_updated_at
+        return abs((t1 - t2).total_seconds()) < tolerance_seconds
 
     def verify(
         self,
@@ -61,6 +79,7 @@ class CitationVerifier:
             .all()
         )
         valid_doc_ids = {doc.id for doc in valid_documents}
+        doc_map = {doc.id: doc for doc in valid_documents}
 
         # 3. Verify claim citations and strip ungrounded claims
         verified_claims_raw: list[tuple[str, list[AggregatedEvidence]]] = []
@@ -86,6 +105,18 @@ class CitationVerifier:
                         "Stripping evidence ID %s: document %s is unowned, deleted, or unindexed",
                         cleaned_eid,
                         item.document_id,
+                    )
+                    continue
+
+                # Check TOCTOU freshness against live document index version
+                current_doc = doc_map[item.document_id]
+                if not self._is_timestamp_fresh(item.document_updated_at, current_doc.updated_at):
+                    logger.debug(
+                        "Stripping evidence ID %s: document %s has been reindexed (stale citation: retrieved_at=%s, live_at=%s)",
+                        cleaned_eid,
+                        item.document_id,
+                        item.document_updated_at,
+                        current_doc.updated_at,
                     )
                     continue
 

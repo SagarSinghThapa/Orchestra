@@ -1,7 +1,9 @@
+from datetime import datetime
 import logging
 from typing import Optional
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.models.document import Document
 from app.research.retrieval.schemas import CitationEvidence, SearchMode, SearchQuery
 from app.research.services.retrieval_service import RetrievalService
 
@@ -25,6 +27,7 @@ class AggregatedEvidence(BaseModel):
     score: float
     aggregated_score: float
     retrieved_by_queries: list[str] = Field(default_factory=list)
+    document_updated_at: Optional[datetime] = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -87,6 +90,20 @@ class EvidenceAggregator:
                         aggregated_score=item.score,
                         retrieved_by_queries=[sq],
                     )
+
+        if merged and hasattr(self.retrieval_service, "db") and self.retrieval_service.db:
+            try:
+                doc_ids = list({item.document_id for item in merged.values()})
+                docs = (
+                    self.retrieval_service.db.query(Document.id, Document.updated_at)
+                    .filter(Document.id.in_(doc_ids))
+                    .all()
+                )
+                updated_map = {d[0]: d[1] for d in docs}
+                for item in merged.values():
+                    item.document_updated_at = updated_map.get(item.document_id)
+            except Exception as e:
+                logger.warning("Could not query Document.updated_at during aggregation: %s", e)
 
         return list(merged.values())
 

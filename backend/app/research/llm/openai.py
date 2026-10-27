@@ -69,7 +69,7 @@ class OpenAICompatibleLLMProvider(LLMProvider):
 
             if response.status_code != 200:
                 raise ResearchPipelineError(
-                    f"LLM request failed with HTTP status {response.status_code}: {response.text}"
+                    f"LLM request failed with HTTP status {response.status_code}"
                 )
 
             data = response.json()

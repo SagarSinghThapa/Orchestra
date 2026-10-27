@@ -302,6 +302,95 @@ class TestResearchAPI:
         assert test_llm_provider.call_count == 3
         assert "Repaired claim with valid citation. [C1]" == data["answer"]
 
+    def test_research_call_budget_pathological_retry(
+        self,
+        client: TestClient,
+        set_auth,
+        test_user: User,
+        test_project: Project,
+        test_llm_provider: DeterministicTestLLMProvider,
+    ):
+        """
+        FIX 3 Regression Test: Pathological malformed output budget enforcement.
+        1. Planner succeeds (call 1).
+        2. Initial synthesis raises malformed JSON error (call 2).
+        3. Synthesis retry succeeds with invalid citation (call 3).
+        4. Graph attempts repair -> hard circuit breaker blocks 4th call!
+        TOTAL provider generation calls strictly <= 3.
+        """
+        set_auth(test_user)
+        test_llm_provider.mode = "pathological_malformed"
+        test_llm_provider.call_count = 0
+
+        doc_content = b"Content for testing budget containment under pathological malformed retry."
+        r_upload = client.post(
+            f"/projects/{test_project.id}/documents",
+            files={"file": ("pathological_doc.txt", doc_content, "text/plain")},
+        )
+        assert r_upload.status_code == status.HTTP_201_CREATED
+
+        response = client.post(
+            f"/projects/{test_project.id}/research",
+            json={"question": "Can the pipeline exceed max LLM calls?"},
+        )
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+
+        # Circuit breaker successfully prevented 4th call and yielded safe insufficient evidence
+        assert test_llm_provider.call_count == 3, "TOTAL provider generation calls must never exceed 3"
+        assert data["metadata"]["llm_call_count"] == 3
+        assert data["status"] == "insufficient_evidence"
+        assert data["answer"] == CANONICAL_INSUFFICIENT_EVIDENCE_ANSWER
+
+    def test_research_call_budget_normal_paths(
+        self,
+        client: TestClient,
+        set_auth,
+        test_user: User,
+        test_project: Project,
+        test_llm_provider: DeterministicTestLLMProvider,
+    ):
+        """
+        FIX 3 Regression Test: Normal execution paths budget verification.
+        Normal path -> exactly 2 calls (1 planner + 1 synthesizer).
+        Normal repair path -> exactly 3 calls (1 planner + 1 synthesizer + 1 repair).
+        """
+        set_auth(test_user)
+
+        # Ingest document
+        doc_content = b"Verification of normal and repair budget paths."
+        r_upload = client.post(
+            f"/projects/{test_project.id}/documents",
+            files={"file": ("budget_doc.txt", doc_content, "text/plain")},
+        )
+        assert r_upload.status_code == status.HTTP_201_CREATED
+
+        # Normal path: 2 calls
+        test_llm_provider.mode = "default"
+        test_llm_provider.call_count = 0
+        r_normal = client.post(
+            f"/projects/{test_project.id}/research",
+            json={"question": "What is verified?"},
+        )
+        assert r_normal.status_code == status.HTTP_200_OK
+        data_normal = r_normal.json()
+        assert data_normal["status"] == "completed"
+        assert test_llm_provider.call_count == 2
+        assert data_normal["metadata"]["llm_call_count"] == 2
+
+        # Normal repair path: 3 calls
+        test_llm_provider.mode = "repair_success"
+        test_llm_provider.call_count = 0
+        r_repair = client.post(
+            f"/projects/{test_project.id}/research",
+            json={"question": "What is repaired?"},
+        )
+        assert r_repair.status_code == status.HTTP_200_OK
+        data_repair = r_repair.json()
+        assert data_repair["status"] == "completed"
+        assert test_llm_provider.call_count == 3
+        assert data_repair["metadata"]["llm_call_count"] == 3
+
     def test_research_unauthenticated_returns_401(
         self,
         client: TestClient,

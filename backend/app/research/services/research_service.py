@@ -18,6 +18,7 @@ from app.research.agents.verifier import (
 from app.research.graph.state import ResearchState
 from app.research.graph.subgraph import compile_research_subgraph
 from app.research.llm.base import LLMProvider
+from app.research.llm.budget import LLMCallBudget
 from app.research.llm.provider import get_llm_provider
 from app.research.schemas import (
     ResearchClaim,
@@ -96,10 +97,19 @@ class ResearchService:
         }
 
         deadline = getattr(settings, "research_timeout_seconds", 45.0)
+        budget = LLMCallBudget(max_calls=getattr(settings, "max_llm_calls_per_request", 3))
+        request_graph = compile_research_subgraph(
+            planner=self.planner,
+            aggregator=self.aggregator,
+            selector=self.selector,
+            synthesizer=self.synthesizer,
+            verifier=self.verifier,
+            call_budget=budget,
+        )
 
         try:
             async with asyncio.timeout(deadline):
-                final_state = await self.graph.ainvoke(initial_state)
+                final_state = await request_graph.ainvoke(initial_state)
 
         except TimeoutError as exc:
             logger.error("Research request exceeded global deadline of %ss for project %s", deadline, project_id)
@@ -109,7 +119,7 @@ class ResearchService:
         citations = [VerifiedCitation.model_validate(c) for c in final_state.get("verified_citations", [])]
         execution_time_ms = round((time.perf_counter() - start_time) * 1000, 2)
 
-        llm_calls = getattr(self.llm_provider, "call_count", 0)
+        llm_calls = budget.used_calls
 
         metadata = ResearchMetadata(
             model=getattr(settings, "llm_model", "gpt-4o-mini"),
