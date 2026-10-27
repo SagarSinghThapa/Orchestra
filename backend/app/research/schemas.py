@@ -16,7 +16,6 @@ class ResearchRequest(BaseModel):
     """
     question: str = Field(
         ...,
-        min_length=3,
         max_length=1000,
         description="User research inquiry",
     )

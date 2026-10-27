@@ -7,6 +7,7 @@ from app.api.projects import router as projects_router
 from app.api.messages import router as messages_router
 from app.api.documents import router as documents_router
 from app.api.search import router as search_router
+from app.api.research import router as research_router
 from app.auth.router import router as auth_router
 from app.database.connection import engine, dispose_engine
 from app.core.redis import init_redis_pool, close_redis_pool, get_redis_health
@@ -34,6 +35,7 @@ app.include_router(auth_router)
 app.include_router(projects_router)
 app.include_router(documents_router)
 app.include_router(search_router)
+app.include_router(research_router)
 app.include_router(sessions_router)
 app.include_router(messages_router)
 
