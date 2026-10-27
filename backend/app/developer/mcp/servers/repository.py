@@ -36,7 +36,8 @@ class RepoTreeTool(BaseTool):
                 "type": "object",
                 "properties": {
                     "path": {"type": "string", "description": "Sub-directory to get tree for."}
-                }
+                },
+                "additionalProperties": False
             }
         )
 
@@ -92,7 +93,8 @@ class FileMetadataTool(BaseTool):
                 "properties": {
                     "path": {"type": "string"}
                 },
-                "required": ["path"]
+                "required": ["path"],
+                "additionalProperties": False
             }
         )
 
@@ -126,7 +128,8 @@ class SearchCodeTool(BaseTool):
                 "properties": {
                     "pattern": {"type": "string", "description": "Regex pattern (max 100 chars)"}
                 },
-                "required": ["pattern"]
+                "required": ["pattern"],
+                "additionalProperties": False
             }
         )
 
