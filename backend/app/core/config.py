@@ -57,6 +57,8 @@ class Settings(BaseSettings):
     llm_temperature: float = 0.0
     research_timeout_seconds: float = 45.0
     max_llm_calls_per_request: int = 3
+    # Developer Subsystem Settings
+    workspace_base_dir: str = "workspaces"
 
     model_config = SettingsConfigDict(
         env_file=".env",
