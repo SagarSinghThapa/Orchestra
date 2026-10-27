@@ -47,6 +47,17 @@ class Settings(BaseSettings):
     retrieval_min_score_threshold: float = 0.0
     retrieval_max_project_chunks: int = 5000
 
+    # LLM Provider & Research Agent Settings
+    llm_provider: str = "test"
+    llm_base_url: Optional[str] = "https://api.openai.com/v1"
+    llm_api_key: Optional[str] = None
+    llm_model: str = "gpt-4o-mini"
+    llm_timeout_seconds: float = 20.0
+    llm_max_output_tokens: int = 2048
+    llm_temperature: float = 0.0
+    research_timeout_seconds: float = 45.0
+    max_llm_calls_per_request: int = 3
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
@@ -79,6 +90,24 @@ class Settings(BaseSettings):
                 raise RuntimeError(
                     "EMBEDDING_API_KEY must be configured for openai_compatible provider in production"
                 )
+
+            if self.llm_provider == "test":
+                raise RuntimeError(
+                    "LLM_PROVIDER cannot be 'test' in production environment. "
+                    "Configure a real provider such as 'openai_compatible' with required credentials."
+                )
+            if self.llm_provider == "openai_compatible":
+                if not self.llm_api_key:
+                    raise RuntimeError(
+                        "LLM_API_KEY must be configured for openai_compatible provider in production"
+                    )
+                if not self.llm_base_url or not (
+                    self.llm_base_url.startswith("http://") or self.llm_base_url.startswith("https://")
+                ):
+                    raise RuntimeError(
+                        "LLM_BASE_URL must begin with 'http://' or 'https://' in production"
+                    )
+
 
 
 settings = Settings()
