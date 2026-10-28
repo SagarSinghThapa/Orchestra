@@ -73,6 +73,9 @@ class StructuredLogger:
     def warn(self, message: str, trace_id: str = "N/A", context: dict = None):
         return self._log("WARN", message, trace_id, context)
 
+    def warning(self, message: str, trace_id: str = "N/A", context: dict = None):
+        return self._log("WARN", message, trace_id, context)
+
     def debug(self, message: str, trace_id: str = "N/A", context: dict = None):
         return self._log("DEBUG", message, trace_id, context)
 

@@ -24,6 +24,7 @@ from app.developer.mcp.servers.git import (
 )
 from app.developer.mcp.utils.sandbox import resolve_safe_path
 from app.developer.graph.graph import compile_developer_subgraph
+from app.developer.budget import LLMCallBudget
 from app.developer.schemas import DeveloperRequest, DeveloperResponse, DeveloperMode, TaskStatus
 from app.developer.errors import ValidationError, TimeoutError
 from app.research.llm.base import LLMProvider
@@ -93,8 +94,9 @@ class DeveloperService:
         gateway.register_tool(GitDiffTool(ws_str))
         gateway.register_tool(GitLogTool(ws_str))
 
-        # 4. Compile isolated Developer LangGraph
-        graph = compile_developer_subgraph(mcp_gateway=gateway, llm_provider=self.llm_provider)
+        # 4. Instantiate request-local LLMCallBudget and compile isolated Developer LangGraph
+        budget = LLMCallBudget(max_calls=2)
+        graph = compile_developer_subgraph(mcp_gateway=gateway, llm_provider=self.llm_provider, call_budget=budget)
 
         # 5. Execute state machine under global deadline
         try:

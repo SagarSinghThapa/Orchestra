@@ -1,7 +1,8 @@
+import re
 from enum import Enum
 from typing import Any, Dict, List, Optional
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class TaskType(str, Enum):
@@ -63,6 +64,34 @@ class DeveloperRequest(BaseModel):
     mode: DeveloperMode = Field(default=DeveloperMode.PREVIEW, description="preview (dry run) or apply (modify disk)")
     expected_file_hashes: Optional[Dict[str, str]] = Field(default=None, description="Optional relative-path to SHA-256 map for optimistic concurrency")
     context_hints: Optional[Dict[str, str]] = Field(default=None, description="Optional key-value metadata hints (e.g. doc_type)")
+
+    @field_validator("expected_file_hashes")
+    @classmethod
+    def validate_expected_hashes(cls, v: Optional[Dict[str, str]]) -> Optional[Dict[str, str]]:
+        if v is None:
+            return None
+        if len(v) > 20:
+            raise ValueError("expected_file_hashes cannot contain more than 20 entries")
+        for k, val in v.items():
+            if len(k) > 255:
+                raise ValueError(f"Path key '{k[:30]}...' exceeds maximum length of 255 characters")
+            if not isinstance(val, str) or not re.match(r"^[a-fA-F0-9]{64}$", val.strip()):
+                raise ValueError(f"Invalid SHA-256 hash format for '{k}': must be 64 hexadecimal characters")
+        return v
+
+    @field_validator("context_hints")
+    @classmethod
+    def validate_context_hints(cls, v: Optional[Dict[str, str]]) -> Optional[Dict[str, str]]:
+        if v is None:
+            return None
+        if len(v) > 20:
+            raise ValueError("context_hints cannot contain more than 20 entries")
+        for k, val in v.items():
+            if len(k) > 100:
+                raise ValueError(f"Hint key '{k[:30]}...' exceeds maximum length of 100 characters")
+            if len(val) > 1000:
+                raise ValueError(f"Hint value for '{k}' exceeds maximum length of 1000 characters")
+        return v
 
 
 class DeveloperResponse(BaseModel):

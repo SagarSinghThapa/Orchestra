@@ -7,6 +7,8 @@ from app.developer.agents.base import BaseAgent
 from app.developer.schemas import CodingAgentResult, ToolRequest, ToolResponseStatus
 from app.developer.mcp.gateway import MCPGateway
 from app.developer.logging import StructuredLogger
+from app.developer.prompts.escaping import escape_prompt_data
+from app.developer.budget import LLMCallBudget, LLMCallBudgetExceededError
 from app.research.llm.base import LLMProvider
 from app.research.llm.provider import get_llm_provider
 
@@ -18,11 +20,13 @@ class CodingAgent(BaseAgent):
         mode: str = "preview",
         max_files_changed: int = 5,
         llm_provider: Optional[LLMProvider] = None,
+        call_budget: Optional[LLMCallBudget] = None,
     ):
         self.mcp = mcp_gateway
         self.mode = mode
         self.max_files_changed = max_files_changed
         self.allowed_extensions = {".py", ".js", ".ts", ".html", ".css", ".md", ".json"}
+        self.call_budget = call_budget
         if llm_provider is not None:
             self.llm_provider = llm_provider
         else:
@@ -94,6 +98,7 @@ class CodingAgent(BaseAgent):
 
         # Capture pre-synthesis baseline hashes and synthesize if needed
         baseline_hashes: Dict[str, Optional[str]] = {}
+        synthesis_needed = not bool(proposed_changes)
         candidate_paths = list(proposed_changes.keys()) if proposed_changes else list(target_files)
 
         for path in candidate_paths:
@@ -104,17 +109,39 @@ class CodingAgent(BaseAgent):
                 baseline_hashes[path] = None
 
             # Synthesize if proposed_changes not pre-supplied
-            if not proposed_changes and path in target_files and self.llm_provider and prompt:
-                synthesis_prompt = (
-                    f"<SYSTEM_INSTRUCTIONS>\n"
-                    f"You are Orchestra's Coding Intelligence Agent. Generate updated source code for the requested file.\n"
-                    f"Respond ONLY with the complete updated code. Do not wrap in markdown or include conversational explanations.\n"
-                    f"</SYSTEM_INSTRUCTIONS>\n"
-                    f"<TASK_PROMPT>\n{prompt}\n</TASK_PROMPT>\n"
-                    f"<TARGET_PATH>{path}</TARGET_PATH>\n"
-                    f"<EXISTING_CONTENT>\n{old_content or ''}\n</EXISTING_CONTENT>\n"
-                )
+            if synthesis_needed and path in target_files and self.llm_provider and prompt:
+                if self.call_budget is not None and self.call_budget.remaining <= 0:
+                    msg = f"LLM call budget exhausted: cannot synthesize {path} within budget."
+                    self.logger.warning(msg, trace_id=trace_id)
+                    warnings.append(msg)
+                    continue
+
                 try:
+                    if self.call_budget is not None:
+                        self.call_budget.consume()
+
+                    safe_prompt = escape_prompt_data(prompt)
+                    safe_path = escape_prompt_data(path)
+                    safe_old = escape_prompt_data(old_content or "")
+                    hints_section = ""
+                    context_hints = params.get("context_hints")
+                    if context_hints and isinstance(context_hints, dict):
+                        hints_lines = [
+                            f"{escape_prompt_data(str(k))}: {escape_prompt_data(str(v))}"
+                            for k, v in context_hints.items()
+                        ]
+                        hints_section = f"<CONTEXT_HINTS>\n" + "\n".join(hints_lines) + "\n</CONTEXT_HINTS>\n"
+
+                    synthesis_prompt = (
+                        f"<SYSTEM_INSTRUCTIONS>\n"
+                        f"You are Orchestra's Coding Intelligence Agent. Generate updated source code for the requested file.\n"
+                        f"Respond ONLY with the complete updated code. Do not wrap in markdown or include conversational explanations.\n"
+                        f"</SYSTEM_INSTRUCTIONS>\n"
+                        f"{hints_section}"
+                        f"<TASK_PROMPT>\n{safe_prompt}\n</TASK_PROMPT>\n"
+                        f"<TARGET_PATH>{safe_path}</TARGET_PATH>\n"
+                        f"<EXISTING_CONTENT>\n{safe_old}\n</EXISTING_CONTENT>\n"
+                    )
                     synth_code = await self.llm_provider.generate_text(
                         prompt=synthesis_prompt,
                         system_prompt="Generate clean source code for the requested modifications.",
@@ -126,8 +153,12 @@ class CodingAgent(BaseAgent):
                         if len(lines) >= 2 and lines[-1].strip() == "```":
                             synth_clean = "\n".join(lines[1:-1])
                     proposed_changes[path] = synth_clean
+                except LLMCallBudgetExceededError as e:
+                    self.logger.warning(f"LLM call budget exhausted for {path}: {e}", trace_id=trace_id)
+                    warnings.append(f"LLM call budget exhausted for {path}: {e}")
+                    continue
                 except Exception as e:
-                    self.logger.warn(f"LLM code synthesis failed for {path}: {e}", trace_id=trace_id)
+                    self.logger.warning(f"LLM code synthesis failed for {path}: {e}", trace_id=trace_id)
                     warnings.append(f"LLM code synthesis failed for {path}: {e}")
 
         for path, new_content in proposed_changes.items():
@@ -160,6 +191,8 @@ class CodingAgent(BaseAgent):
                 warnings.append(f"Validation failed for {path}: {val_status}")
 
         summary = f"Generated {len(files_changed)} files."
+        if any("LLM call budget exhausted" in w for w in warnings):
+            summary += f" (synthesis bounded by {self.call_budget.max_calls if self.call_budget else 2} LLM call limit)."
 
         if mode == "apply":
             if any("Validation failed" in w for w in warnings):

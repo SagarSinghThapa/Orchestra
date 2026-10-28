@@ -21,11 +21,14 @@ class GitBaseTool(BaseTool):
         """
         Constructs a minimal allowlist-based environment for child git processes.
         Strips host API keys, JWT secrets, and database credentials.
+        Isolates global/system configuration and forces non-interactive pager.
         """
         SAFE_KEYS = {"PATH", "SYSTEMROOT", "SYSTEMDRIVE", "TEMP", "TMP", "USERPROFILE", "HOME"}
         env = {k: v for k, v in os.environ.items() if k.upper() in SAFE_KEYS}
         env["GIT_TERMINAL_PROMPT"] = "0"
         env["GIT_CONFIG_NOSYSTEM"] = "1"
+        env["GIT_CONFIG_GLOBAL"] = os.devnull
+        env["GIT_PAGER"] = "cat"
         try:
             # Prevent git from walking up parent directories
             ceiling = str(Path(self.workspace_root).resolve().parent)
@@ -65,7 +68,7 @@ class GitBaseTool(BaseTool):
 
         try:
             process = await asyncio.create_subprocess_exec(
-                "git", *args,
+                "git", "--no-pager", *args,
                 cwd=str(workspace_path),
                 env=self._get_sanitized_environment(),
                 stdout=asyncio.subprocess.PIPE,
@@ -125,18 +128,21 @@ class GitDiffTool(GitBaseTool):
     def registration(self) -> ToolRegistration:
         return ToolRegistration(
             name="git_diff",
-            description="Gets the git diff with argument injection protection.",
+            description="Gets the git diff with argument injection and external execution protection.",
             input_schema={
                 "type": "object",
                 "properties": {
-                    "file": {"type": "string", "description": "Optional file path to diff"}
+                    "file": {"type": "string", "description": "Optional file path to diff"},
+                    "staged": {"type": "boolean", "description": "Optional flag to diff staged changes"}
                 },
                 "additionalProperties": False
             }
         )
 
     async def execute(self, arguments: Dict[str, Any], trace_id: str) -> Any:
-        args = ["diff"]
+        args = ["diff", "--no-ext-diff", "--no-textconv"]
+        if arguments.get("staged"):
+            args.append("--staged")
         if "file" in arguments and arguments["file"]:
             file_arg = str(arguments["file"]).strip()
             # Guard against flag injection

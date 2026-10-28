@@ -20,6 +20,7 @@ from app.developer.logging import scrub_secrets
 from app.developer.agents.repository import RepositoryAgent
 from app.developer.agents.coding import CodingAgent
 from app.developer.agents.documentation import DocumentationAgent
+from app.developer.budget import LLMCallBudget
 from app.research.llm.base import LLMProvider
 from app.research.llm.provider import get_llm_provider
 
@@ -167,15 +168,20 @@ def _extract_agent_params(state: DeveloperState) -> Dict[str, Any]:
     return params
 
 
-def create_repository_node(mcp_gateway: MCPGateway, llm_provider: Optional[LLMProvider] = None):
+def create_repository_node(
+    mcp_gateway: MCPGateway,
+    llm_provider: Optional[LLMProvider] = None,
+    call_budget: Optional[LLMCallBudget] = None,
+):
     async def repository_node(state: DeveloperState) -> DeveloperState:
         # Budget circuit breakers
-        if state.get("llm_calls_made", 0) >= 2:
+        calls_used = call_budget.used_calls if call_budget else state.get("llm_calls_made", 0)
+        if (call_budget and call_budget.remaining <= 0) or calls_used >= 2:
             return {"error": f"[{ErrorTaxonomy.VALIDATION_INPUT.value}] Execution budget exceeded: maximum 2 LLM calls allowed."}
         if state.get("tool_calls_made", 0) >= 20 or mcp_gateway.tool_calls_count >= 20:
             return {"error": f"[{ErrorTaxonomy.VALIDATION_INPUT.value}] Execution budget exceeded: maximum 20 tool calls allowed."}
 
-        agent = RepositoryAgent(mcp_gateway, llm_provider=llm_provider)
+        agent = RepositoryAgent(mcp_gateway, llm_provider=llm_provider, call_budget=call_budget)
         try:
             params = _extract_agent_params(state)
             result = await agent.execute(params, state.get("trace_id", "N/A"))
@@ -183,6 +189,7 @@ def create_repository_node(mcp_gateway: MCPGateway, llm_provider: Optional[LLMPr
                 "agent_result": result,
                 "tool_calls_made": mcp_gateway.tool_calls_count,
                 "files_read_count": len(mcp_gateway.files_read),
+                "llm_calls_made": call_budget.used_calls if call_budget else state.get("llm_calls_made", 0),
             }
         except DeveloperBaseException as e:
             return {"error": f"[{e.code.value}] {scrub_secrets(e.message)}"}
@@ -191,16 +198,21 @@ def create_repository_node(mcp_gateway: MCPGateway, llm_provider: Optional[LLMPr
     return repository_node
 
 
-def create_coding_node(mcp_gateway: MCPGateway, llm_provider: Optional[LLMProvider] = None):
+def create_coding_node(
+    mcp_gateway: MCPGateway,
+    llm_provider: Optional[LLMProvider] = None,
+    call_budget: Optional[LLMCallBudget] = None,
+):
     async def coding_node(state: DeveloperState) -> DeveloperState:
         # Budget circuit breakers
-        if state.get("llm_calls_made", 0) >= 2:
+        calls_used = call_budget.used_calls if call_budget else state.get("llm_calls_made", 0)
+        if (call_budget and call_budget.remaining <= 0) or calls_used >= 2:
             return {"error": f"[{ErrorTaxonomy.VALIDATION_INPUT.value}] Execution budget exceeded: maximum 2 LLM calls allowed."}
         if state.get("tool_calls_made", 0) >= 20 or mcp_gateway.tool_calls_count >= 20:
             return {"error": f"[{ErrorTaxonomy.VALIDATION_INPUT.value}] Execution budget exceeded: maximum 20 tool calls allowed."}
 
         mode = state.get("mode", "preview")
-        agent = CodingAgent(mcp_gateway, mode=mode, llm_provider=llm_provider)
+        agent = CodingAgent(mcp_gateway, mode=mode, llm_provider=llm_provider, call_budget=call_budget)
         try:
             params = _extract_agent_params(state)
             result = await agent.execute(params, state.get("trace_id", "N/A"))
@@ -208,6 +220,7 @@ def create_coding_node(mcp_gateway: MCPGateway, llm_provider: Optional[LLMProvid
                 "agent_result": result,
                 "tool_calls_made": mcp_gateway.tool_calls_count,
                 "files_read_count": len(mcp_gateway.files_read),
+                "llm_calls_made": call_budget.used_calls if call_budget else state.get("llm_calls_made", 0),
             }
         except DeveloperBaseException as e:
             return {"error": f"[{e.code.value}] {scrub_secrets(e.message)}"}
@@ -216,16 +229,21 @@ def create_coding_node(mcp_gateway: MCPGateway, llm_provider: Optional[LLMProvid
     return coding_node
 
 
-def create_documentation_node(mcp_gateway: MCPGateway, llm_provider: Optional[LLMProvider] = None):
+def create_documentation_node(
+    mcp_gateway: MCPGateway,
+    llm_provider: Optional[LLMProvider] = None,
+    call_budget: Optional[LLMCallBudget] = None,
+):
     async def documentation_node(state: DeveloperState) -> DeveloperState:
         # Budget circuit breakers
-        if state.get("llm_calls_made", 0) >= 2:
+        calls_used = call_budget.used_calls if call_budget else state.get("llm_calls_made", 0)
+        if (call_budget and call_budget.remaining <= 0) or calls_used >= 2:
             return {"error": f"[{ErrorTaxonomy.VALIDATION_INPUT.value}] Execution budget exceeded: maximum 2 LLM calls allowed."}
         if state.get("tool_calls_made", 0) >= 20 or mcp_gateway.tool_calls_count >= 20:
             return {"error": f"[{ErrorTaxonomy.VALIDATION_INPUT.value}] Execution budget exceeded: maximum 20 tool calls allowed."}
 
         mode = state.get("mode", "preview")
-        agent = DocumentationAgent(mcp_gateway, mode=mode, llm_provider=llm_provider)
+        agent = DocumentationAgent(mcp_gateway, mode=mode, llm_provider=llm_provider, call_budget=call_budget)
         try:
             params = _extract_agent_params(state)
             result = await agent.execute(params, state.get("trace_id", "N/A"))
@@ -233,6 +251,7 @@ def create_documentation_node(mcp_gateway: MCPGateway, llm_provider: Optional[LL
                 "agent_result": result,
                 "tool_calls_made": mcp_gateway.tool_calls_count,
                 "files_read_count": len(mcp_gateway.files_read),
+                "llm_calls_made": call_budget.used_calls if call_budget else state.get("llm_calls_made", 0),
             }
         except DeveloperBaseException as e:
             return {"error": f"[{e.code.value}] {scrub_secrets(e.message)}"}
@@ -318,6 +337,7 @@ def create_format_result_node(mcp_gateway: MCPGateway):
                 "tool_calls_made": mcp_gateway.tool_calls_count,
                 "files_read_count": len(mcp_gateway.files_read),
                 "cumulative_read_bytes": mcp_gateway.cumulative_read_bytes,
+                "llm_calls_made": state.get("llm_calls_made", 0),
             }
         )
 
@@ -329,7 +349,11 @@ def create_format_result_node(mcp_gateway: MCPGateway):
 
 
 # 5. Graph Compiler
-def compile_developer_subgraph(mcp_gateway: MCPGateway, llm_provider: Optional[LLMProvider] = None):
+def compile_developer_subgraph(
+    mcp_gateway: MCPGateway,
+    llm_provider: Optional[LLMProvider] = None,
+    call_budget: Optional[LLMCallBudget] = None,
+):
     """
     Compiles and returns the isolated Developer Subgraph executable graph.
     """
@@ -338,9 +362,9 @@ def compile_developer_subgraph(mcp_gateway: MCPGateway, llm_provider: Optional[L
     format_node = create_format_result_node(mcp_gateway)
 
     graph.add_node("validate", validate_task_node)
-    graph.add_node("repository_agent", create_repository_node(mcp_gateway, llm_provider))
-    graph.add_node("coding_agent", create_coding_node(mcp_gateway, llm_provider))
-    graph.add_node("documentation_agent", create_documentation_node(mcp_gateway, llm_provider))
+    graph.add_node("repository_agent", create_repository_node(mcp_gateway, llm_provider, call_budget))
+    graph.add_node("coding_agent", create_coding_node(mcp_gateway, llm_provider, call_budget))
+    graph.add_node("documentation_agent", create_documentation_node(mcp_gateway, llm_provider, call_budget))
     graph.add_node("format_result", format_node)
     graph.add_node("format_error", format_node)
 

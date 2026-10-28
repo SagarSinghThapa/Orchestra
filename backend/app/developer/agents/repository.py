@@ -5,6 +5,8 @@ from app.developer.agents.base import BaseAgent
 from app.developer.schemas import RepositoryAnalysisResult, ToolRequest, ToolResponseStatus
 from app.developer.mcp.gateway import MCPGateway
 from app.developer.logging import StructuredLogger
+from app.developer.prompts.escaping import escape_prompt_data
+from app.developer.budget import LLMCallBudget, LLMCallBudgetExceededError
 from app.research.llm.base import LLMProvider
 from app.research.llm.provider import get_llm_provider
 
@@ -15,12 +17,14 @@ class RepositoryAgent(BaseAgent):
         mcp_gateway: MCPGateway,
         max_files_to_read: int = 10,
         max_file_size_bytes: int = 1024 * 50,
-        llm_provider: Optional[LLMProvider] = None
+        llm_provider: Optional[LLMProvider] = None,
+        call_budget: Optional[LLMCallBudget] = None,
     ):
         self.mcp = mcp_gateway
         self.max_files_to_read = max_files_to_read
         self.max_file_size_bytes = max_file_size_bytes
         self.llm_provider = llm_provider
+        self.call_budget = call_budget
         self.logger = StructuredLogger("repository-agent")
 
     async def _call_tool(self, tool_name: str, arguments: dict, trace_id: str) -> Any:
@@ -70,17 +74,23 @@ class RepositoryAgent(BaseAgent):
 
         if self.llm_provider:
             try:
+                if self.call_budget is not None:
+                    self.call_budget.consume()
+
+                safe_tree = escape_prompt_data(tree_str[:2000])
                 prompt = (
                     f"<SYSTEM_INSTRUCTIONS>\n"
                     f"You are Orchestra's Repository Intelligence Agent. Analyze the repository structure and manifests.\n"
                     f"Ground your analysis strictly in verified files and do not hallucinate endpoints or dependencies.\n"
                     f"</SYSTEM_INSTRUCTIONS>\n"
                     f"<UNTRUSTED_REPOSITORY_DATA>\n"
-                    f"Tree Overview:\n{tree_str[:2000]}\n\n"
+                    f"Tree Overview:\n{safe_tree}\n\n"
                     f"Manifest Contents:\n"
                 )
                 for path, content in list(file_contents.items())[:5]:
-                    prompt += f"--- {path} ---\n{content[:1000]}\n"
+                    safe_path = escape_prompt_data(path)
+                    safe_content = escape_prompt_data(content[:1000])
+                    prompt += f"--- {safe_path} ---\n{safe_content}\n"
                 prompt += "</UNTRUSTED_REPOSITORY_DATA>\n"
 
                 llm_result = await self.llm_provider.generate_structured(
@@ -110,6 +120,8 @@ class RepositoryAgent(BaseAgent):
                 )
                 self.logger.info("Repository analysis synthesized with LLMProvider.", trace_id=trace_id)
                 return final_result.model_dump()
+            except LLMCallBudgetExceededError as e:
+                self.logger.warn(f"LLM call budget exhausted, falling back to heuristic interpretation: {e}", trace_id=trace_id)
             except Exception as e:
                 self.logger.warn(f"LLM synthesis fallback to heuristic interpretation: {e}", trace_id=trace_id)
 

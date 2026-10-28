@@ -230,13 +230,16 @@ class WriteFileTool(BaseTool):
 
             if target_existed:
                 original_hash = hashlib.sha256(target_path.read_bytes()).hexdigest()
-                if expected_hash is not None and expected_hash.strip():
-                    if original_hash.lower() != expected_hash.strip().lower():
-                        raise ValidationError(
-                            f"Optimistic concurrency failure for '{arguments['path']}': file was modified concurrently (hash mismatch)."
-                        )
+                if expected_hash is None or not str(expected_hash).strip():
+                    raise ValidationError(
+                        f"Optimistic concurrency failure for '{arguments['path']}': target file already exists but expected_hash was not provided."
+                    )
+                if original_hash.lower() != str(expected_hash).strip().lower():
+                    raise ValidationError(
+                        f"Optimistic concurrency failure for '{arguments['path']}': file was modified concurrently (hash mismatch)."
+                    )
             else:
-                if expected_hash is not None and expected_hash.strip():
+                if expected_hash is not None and str(expected_hash).strip():
                     raise ValidationError(
                         f"Optimistic concurrency failure for '{arguments['path']}': expected existing file was not found."
                     )
