@@ -59,7 +59,8 @@ class OrchestratorService:
             self.checkpointer = checkpointer
         else:
             bind = self.db.get_bind() if self.db else None
-            self.checkpointer = PostgresSaver(engine=bind)
+            engine = bind.engine if bind and hasattr(bind, "engine") else bind
+            self.checkpointer = PostgresSaver(engine=engine)
 
         self.classifier = classifier or IntentClassifier(llm_provider=self.llm_provider)
         self.direct_qa_engine = direct_qa_engine or DirectQAEngine(llm_provider=self.llm_provider)
