@@ -157,6 +157,16 @@ class SummarizerService:
         """
         Upserts summary with atomic optimistic concurrency and INSERT race resolution.
         """
+        existing = (
+            self.db.query(SessionSummary)
+            .filter(SessionSummary.session_id == session_id)
+            .first()
+        )
+        if existing and watermark_id < existing.message_watermark_id:
+            raise WatermarkRegressionError(
+                f"Watermark regression: new {watermark_id} is less than current {existing.message_watermark_id}"
+            )
+
         if expected_version is None:
             summary = SessionSummary(
                 session_id=session_id,

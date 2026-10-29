@@ -51,6 +51,7 @@ class OrchestratorState(TypedDict, total=False):
     intent: Optional[str]
     developer_params: Optional[Dict[str, Any]]
     research_params: Optional[Dict[str, Any]]
+    memory_context: Optional[str]
     answer: str
     research_result: Optional[Dict[str, Any]]
     developer_result: Optional[Dict[str, Any]]

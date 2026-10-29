@@ -29,7 +29,7 @@ def create_orchestrator_graph(
       - classify_intent: Classifies user prompt into RESEARCH, DEVELOPER, or DIRECT_QA.
       - research_subgraph: Delegates to ResearchService.
       - developer_subgraph: Delegates to DeveloperService.
-      - direct_qa: Answers general inquiries directly.
+      - direct_qa: Answers general inquiries directly, consuming memory_context when present.
       - synthesize_output: Finalizes state and execution trace.
     """
 
@@ -139,11 +139,15 @@ def create_orchestrator_graph(
 
     async def direct_qa_node(state: OrchestratorState) -> Dict[str, Any]:
         prompt = state["prompt"]
+        memory_ctx = state.get("memory_context")
         trace = list(state.get("execution_trace", []))
         trace.append("direct_qa:start")
 
         try:
-            ans = await direct_qa_engine.answer(prompt)
+            try:
+                ans = await direct_qa_engine.answer(prompt, context=memory_ctx)
+            except TypeError:
+                ans = await direct_qa_engine.answer(prompt)
             trace.append("direct_qa:completed")
             return {
                 "answer": ans,
