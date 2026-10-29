@@ -87,6 +87,13 @@ class DeterministicTestLLMProvider(LLMProvider):
         if schema_name == "DraftResearchAnswer":
             return self._generate_draft_answer(prompt, schema)
 
+        if schema_name == "SummarizationResponse":
+            return schema.model_validate({
+                "summary": "Deterministic conversation summary regarding system architecture and testing.",
+                "key_topics": ["architecture", "concurrency"],
+                "decisions_made": ["Use incremental summarization with watermark monotonicity"],
+            })
+
         # Fallback generic model instantiation with empty dict or dummy fields
         try:
             return schema.model_validate({})
