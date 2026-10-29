@@ -155,3 +155,54 @@ def test_session(db_session: Session, test_project: Project) -> DBSession:
     db_session.refresh(session)
     return session
 
+
+@pytest.fixture(scope="function")
+def foreign_user(db_session: Session) -> User:
+    """Secondary user to validate IDOR boundary protections."""
+    user = User(
+        email="foreign_user@orchestra.ai",
+        password_hash="hashed_pw_foreign_456",
+        role="member",
+    )
+    db_session.add(user)
+    db_session.commit()
+    db_session.refresh(user)
+    return user
+
+
+@pytest.fixture(scope="function")
+def foreign_project(db_session: Session, foreign_user: User) -> Project:
+    """Project owned by foreign_user."""
+    project = Project(
+        name="Foreign Project",
+        description="Foreign workspace",
+        owner_id=foreign_user.id,
+    )
+    db_session.add(project)
+    db_session.commit()
+    db_session.refresh(project)
+    return project
+
+
+@pytest.fixture(scope="function")
+def client(db_session: Session) -> Generator[TestClient, None, None]:
+    """TestClient overriding get_db and cleaning dependency overrides."""
+    def _override_get_db():
+        yield db_session
+
+    app.dependency_overrides[get_db] = _override_get_db
+
+    with TestClient(app) as test_client:
+        yield test_client
+
+    app.dependency_overrides.pop(get_db, None)
+    app.dependency_overrides.pop(get_current_user, None)
+
+
+@pytest.fixture(scope="function")
+def set_auth():
+    """Helper to dynamically switch authenticated user for API requests."""
+    def _set(user: User):
+        app.dependency_overrides[get_current_user] = lambda: user
+    return _set
+

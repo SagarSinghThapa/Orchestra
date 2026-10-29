@@ -10,6 +10,7 @@ from app.api.search import router as search_router
 from app.api.research import router as research_router
 from app.api.developer import router as developer_router
 from app.api.orchestrator import router as orchestrator_router
+from app.api.memory import router as memory_router
 from app.auth.router import router as auth_router
 from app.database.connection import engine, dispose_engine
 from app.core.redis import init_redis_pool, close_redis_pool, get_redis_health
@@ -40,6 +41,7 @@ app.include_router(search_router)
 app.include_router(research_router)
 app.include_router(developer_router)
 app.include_router(orchestrator_router)
+app.include_router(memory_router)
 app.include_router(sessions_router)
 app.include_router(messages_router)
 

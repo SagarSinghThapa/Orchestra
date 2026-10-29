@@ -1,6 +1,7 @@
 from typing import Optional
 from sqlalchemy.orm import Session
 
+from app.developer.prompts.escaping import escape_prompt_data
 from app.memory.schemas import ContextAssemblerConfig, MemoryContext
 from app.models.message import Message as MessageModel
 from app.models.session_summary import SessionSummary
@@ -119,17 +120,17 @@ class ContextAssembler:
         )
 
     def format_for_prompt(self, ctx: MemoryContext) -> str:
-        """Formats MemoryContext into structured XML string."""
+        """Formats MemoryContext into structured XML string with escaped untrusted data."""
         if not ctx.recent_messages and not ctx.session_summary and not ctx.project_context:
             return ""
 
         sections = ["<SYSTEM_CONTEXT>"]
         if ctx.project_context:
-            sections.append(f"<PROJECT_MEMORY>\n{ctx.project_context}\n</PROJECT_MEMORY>")
+            sections.append(f"<PROJECT_MEMORY>\n{escape_prompt_data(ctx.project_context)}\n</PROJECT_MEMORY>")
         if ctx.session_summary:
-            sections.append(f"<SESSION_SUMMARY>\n{ctx.session_summary}\n</SESSION_SUMMARY>")
+            sections.append(f"<SESSION_SUMMARY>\n{escape_prompt_data(ctx.session_summary)}\n</SESSION_SUMMARY>")
         if ctx.recent_messages:
-            lines = [f"[{m['role']}]: {m['content']}" for m in ctx.recent_messages]
+            lines = [f"[{escape_prompt_data(m['role'])}]: {escape_prompt_data(m['content'])}" for m in ctx.recent_messages]
             sections.append(f"<RECENT_MESSAGES>\n" + "\n".join(lines) + "\n</RECENT_MESSAGES>")
         sections.append("</SYSTEM_CONTEXT>")
         return "\n".join(sections)
