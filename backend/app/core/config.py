@@ -8,6 +8,7 @@ class Settings(BaseSettings):
     jwt_secret: Optional[str] = None
     redis_url: Optional[str] = None
     environment: str = "production"
+    app_git_sha: Optional[str] = None
 
     # Database Connection Pool Settings
     db_pool_size: int = 5
