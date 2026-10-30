@@ -119,6 +119,58 @@ def health():
     }
 
 
+@app.get("/health/ready")
+async def readiness():
+    dependencies = {}
+    is_ready = True
+
+    # 1. Database check (Mandatory)
+    if engine is None:
+        dependencies["database"] = "unconfigured"
+        is_ready = False
+    else:
+        try:
+            with engine.connect() as connection:
+                connection.execute(text("SELECT 1"))
+            dependencies["database"] = "healthy"
+        except Exception:
+            dependencies["database"] = "unhealthy"
+            is_ready = False
+
+    # 2. Redis check (Mandatory only if production rate limiting backend is redis)
+    redis_health_data = await get_redis_health()
+    dependencies["redis"] = redis_health_data.get("status", "disconnected")
+    if settings.rate_limit_backend == "redis" and settings.environment == "production":
+        if dependencies["redis"] != "healthy":
+            is_ready = False
+
+    # 3. Qdrant check (Informational/degraded)
+    if not settings.qdrant_url:
+        dependencies["qdrant"] = "unconfigured"
+    else:
+        try:
+            from qdrant_client import AsyncQdrantClient
+
+            client = AsyncQdrantClient(
+                url=settings.qdrant_url,
+                api_key=settings.qdrant_api_key,
+                timeout=2.0,
+            )
+            await client.get_collections()
+            await client.close()
+            dependencies["qdrant"] = "healthy"
+        except Exception:
+            dependencies["qdrant"] = "degraded"
+
+    if not is_ready:
+        return JSONResponse(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            content={"status": "not_ready", "dependencies": dependencies},
+        )
+
+    return {"status": "ready", "dependencies": dependencies}
+
+
 @app.get("/health/database")
 def database_health():
     if engine is None:

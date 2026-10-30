@@ -156,5 +156,74 @@ describe("ApiClient & ApiAdapter Security & Transport", () => {
     expect(getItemSpy).not.toHaveBeenCalledWith("token");
     expect(setItemSpy).not.toHaveBeenCalledWith("jwt_token", expect.anything());
   });
+
+  it("captures X-Request-ID on API errors as requestId", async () => {
+    const mockHeaders = new Headers();
+    mockHeaders.set("X-Request-ID", "req_test_12345");
+    const mockFetch = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 500,
+      headers: mockHeaders,
+      json: async () => ({ detail: "Internal server error" }),
+    });
+    global.fetch = mockFetch;
+
+    try {
+      await api.get("/projects");
+      expect.fail("Expected api.get to throw ApiError");
+    } catch (err: unknown) {
+      const apiErr = err as ApiError;
+      expect(apiErr.status).toBe(500);
+      expect(apiErr.requestId).toBe("req_test_12345");
+    }
+  });
+
+  it("handles HTTP 429 Too Many Requests by parsing Retry-After and does not auto-retry", async () => {
+    const mockHeaders = new Headers();
+    mockHeaders.set("Retry-After", "42");
+    mockHeaders.set("X-Request-ID", "req_rate_limit_001");
+    const mockFetch = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 429,
+      headers: mockHeaders,
+      json: async () => ({ detail: "Too many requests. Please try again in 42 seconds." }),
+    });
+    global.fetch = mockFetch;
+
+    try {
+      await api.post("/projects/1/research", { query: "AI architecture" });
+      expect.fail("Expected api.post to throw ApiError on 429");
+    } catch (err: unknown) {
+      const apiErr = err as ApiError;
+      expect(apiErr.status).toBe(429);
+      expect(apiErr.retryAfter).toBe(42);
+      expect(apiErr.requestId).toBe("req_rate_limit_001");
+      expect(apiErr.message).toContain("42 seconds");
+      // Must NOT retry mutating request
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+    }
+  });
+
+  it("handles HTTP 429 with fallback message when Retry-After is absent", async () => {
+    const mockHeaders = new Headers();
+    mockHeaders.set("X-Request-ID", "req_fallback_429");
+    const mockFetch = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 429,
+      headers: mockHeaders,
+      json: async () => ({}),
+    });
+    global.fetch = mockFetch;
+
+    try {
+      await api.get("/auth/login");
+      expect.fail("Expected api.get to throw ApiError on 429");
+    } catch (err: unknown) {
+      const apiErr = err as ApiError;
+      expect(apiErr.status).toBe(429);
+      expect(apiErr.retryAfter).toBeUndefined();
+      expect(apiErr.message).toBe("Too many requests. Please wait a moment and try again.");
+    }
+  });
 });
 

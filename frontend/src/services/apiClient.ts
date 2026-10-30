@@ -2,7 +2,9 @@ export class ApiError extends Error {
   constructor(
     public status: number,
     message: string,
-    public details?: unknown
+    public details?: unknown,
+    public retryAfter?: number,
+    public requestId?: string
   ) {
     super(message);
     this.name = "ApiError";
@@ -99,12 +101,28 @@ class ApiAdapter {
           // Response body was not JSON
         }
 
+        const requestId = response.headers?.get ? response.headers.get("x-request-id") || undefined : undefined;
+
+        if (response.status === 429) {
+          const rawRetryAfter = response.headers?.get ? response.headers.get("retry-after") : null;
+          const parsedRetry = rawRetryAfter ? parseInt(rawRetryAfter, 10) : NaN;
+          const retryAfter = !isNaN(parsedRetry) && parsedRetry > 0 ? parsedRetry : undefined;
+
+          const message =
+            (typeof errorData?.detail === "string" ? errorData.detail : null) ||
+            (retryAfter
+              ? `Too many requests. Please try again in ${retryAfter} seconds.`
+              : "Too many requests. Please wait a moment and try again.");
+
+          throw new ApiError(429, message, errorData?.detail || errorData, retryAfter, requestId);
+        }
+
         const message =
           (typeof errorData?.detail === "string" ? errorData.detail : null) ||
           (typeof errorData?.message === "string" ? errorData.message : null) ||
           `API Error (${response.status}): ${response.statusText}`;
 
-        throw new ApiError(response.status, message, errorData?.detail || errorData);
+        throw new ApiError(response.status, message, errorData?.detail || errorData, undefined, requestId);
       }
 
       // Handle 204 No Content or empty responses cleanly
