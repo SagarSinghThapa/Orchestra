@@ -26,7 +26,7 @@ export function RunEvaluationModal({
   isViewer,
 }: RunEvaluationModalProps) {
   const [selectedSuiteId, setSelectedSuiteId] = useState<string>("");
-  const [executionMode, setExecutionMode] = useState<ExecutionMode>("regression");
+  const executionMode: ExecutionMode = "regression";
   const [maxCases, setMaxCases] = useState<number>(5);
   const [error, setError] = useState<string | null>(null);
 
@@ -111,54 +111,16 @@ export function RunEvaluationModal({
             <label className="block text-xs font-bold text-gray-700 uppercase tracking-wider mb-2">
               Execution Mode
             </label>
-            <div className="grid grid-cols-2 gap-3">
-              <label
-                className={`flex flex-col p-3 rounded-xl border text-xs cursor-pointer transition-all ${
-                  executionMode === "regression"
-                    ? "border-blue-600 bg-blue-50/50 text-blue-900 ring-1 ring-blue-600"
-                    : "border-gray-200 hover:bg-gray-50 text-gray-700"
-                }`}
-              >
-                <div className="flex items-center justify-between font-bold">
-                  <span>Regression Mode</span>
-                  <input
-                    type="radio"
-                    name="executionMode"
-                    value="regression"
-                    checked={executionMode === "regression"}
-                    onChange={() => setExecutionMode("regression")}
-                    disabled={isLoading || isViewer}
-                    className="h-3.5 w-3.5 text-blue-600"
-                  />
-                </div>
-                <span className="text-[11px] text-gray-500 mt-1">
-                  Deterministic offline test harness. Fast, cost-free, zero paid API tokens.
+            <div className="p-3.5 rounded-xl border border-blue-600 bg-blue-50/50 text-blue-900 ring-1 ring-blue-600">
+              <div className="flex items-center justify-between font-bold text-xs">
+                <span>Deterministic Regression Mode</span>
+                <span className="text-[10px] font-semibold bg-blue-100 text-blue-800 px-2 py-0.5 rounded-full">
+                  $0.00 Cost
                 </span>
-              </label>
-
-              <label
-                className={`flex flex-col p-3 rounded-xl border text-xs cursor-pointer transition-all ${
-                  executionMode === "real_provider"
-                    ? "border-blue-600 bg-blue-50/50 text-blue-900 ring-1 ring-blue-600"
-                    : "border-gray-200 hover:bg-gray-50 text-gray-700"
-                }`}
-              >
-                <div className="flex items-center justify-between font-bold">
-                  <span>Real Provider</span>
-                  <input
-                    type="radio"
-                    name="executionMode"
-                    value="real_provider"
-                    checked={executionMode === "real_provider"}
-                    onChange={() => setExecutionMode("real_provider")}
-                    disabled={isLoading || isViewer}
-                    className="h-3.5 w-3.5 text-blue-600"
-                  />
-                </div>
-                <span className="text-[11px] text-gray-500 mt-1">
-                  Evaluates against live production LLM endpoints under 10s per-case timeouts.
-                </span>
-              </label>
+              </div>
+              <p className="text-[11px] text-gray-600 mt-1 leading-relaxed">
+                Deterministic offline test harness executing static AST and math metrics. Zero external API calls, 100% reproducible.
+              </p>
             </div>
           </div>
 

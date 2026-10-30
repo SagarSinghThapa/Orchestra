@@ -49,27 +49,66 @@ class EvaluationService:
         self.global_timeout_s = global_timeout_s
 
     @staticmethod
-    def resolve_git_sha() -> str:
+    def resolve_git_sha(repo_root_override: Optional[Path] = None) -> str:
         """
         Resolves application Git commit SHA without spawning runtime subprocesses.
+        Precedence:
+        1. settings.app_git_sha
+        2. os.getenv("APP_GIT_SHA")
+        3. Safe read-only inspection of .git/HEAD (symbolic ref, packed-refs, or detached HEAD)
+        4. "development" fallback
         """
         if settings.app_git_sha:
             return settings.app_git_sha
 
         env_sha = os.getenv("APP_GIT_SHA")
-        if env_sha:
+        if env_sha and env_sha.strip():
             return env_sha.strip()
 
-        # Safe read-only fallback: inspect .git/HEAD if accessible
+        # Locate repository root containing .git directory
         try:
-            head_path = Path(__file__).resolve().parents[4] / ".git" / "HEAD"
-            if head_path.exists():
-                head_content = head_path.read_text(encoding="utf-8").strip()
-                if head_content.startswith("ref:"):
-                    ref_path = head_path.parent / head_content[5:].strip()
-                    if ref_path.exists():
-                        return ref_path.read_text(encoding="utf-8").strip()[:12]
-                return head_content[:12]
+            repo_root: Optional[Path] = None
+            if repo_root_override is not None:
+                repo_root = repo_root_override
+            else:
+                curr = Path(__file__).resolve().parent
+                for _ in range(6):
+                    if (curr / ".git").exists():
+                        repo_root = curr
+                        break
+                    if curr == curr.parent:
+                        break
+                    curr = curr.parent
+
+            if repo_root:
+                git_dir = repo_root / ".git"
+                # Handle gitdir file (e.g. git worktrees or submodules)
+                if git_dir.is_file():
+                    gitdir_content = git_dir.read_text(encoding="utf-8").strip()
+                    if gitdir_content.startswith("gitdir:"):
+                        git_dir = (repo_root / gitdir_content[7:].strip()).resolve()
+
+                head_path = git_dir / "HEAD"
+                if head_path.is_file():
+                    head_content = head_path.read_text(encoding="utf-8").strip()
+                    if head_content.startswith("ref:"):
+                        ref_rel = head_content[4:].strip()
+                        ref_path = git_dir / ref_rel
+                        if ref_path.is_file():
+                            ref_sha = ref_path.read_text(encoding="utf-8").strip()
+                            if ref_sha:
+                                return ref_sha[:12]
+                        # Check packed-refs fallback
+                        packed_refs = git_dir / "packed-refs"
+                        if packed_refs.is_file():
+                            for line in packed_refs.read_text(encoding="utf-8").splitlines():
+                                line = line.strip()
+                                if line and not line.startswith("#") and not line.startswith("^"):
+                                    parts = line.split()
+                                    if len(parts) >= 2 and parts[1] == ref_rel:
+                                        return parts[0][:12]
+                    elif len(head_content) >= 7 and all(c in "0123456789abcdefABCDEF" for c in head_content[:12]):
+                        return head_content[:12]
         except Exception:
             pass
 
