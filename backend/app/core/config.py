@@ -66,6 +66,58 @@ class Settings(BaseSettings):
     # Developer Subsystem Settings
     workspace_base_dir: str = "workspaces"
 
+    # Rate Limiting Settings
+    rate_limit_enabled: bool = True
+    rate_limit_backend: str = "redis"  # "redis" or "memory"
+    rate_limit_redis_fail_closed: bool = True
+    rate_limit_auth_limit: int = 5
+    rate_limit_auth_window_seconds: int = 60
+    rate_limit_read_limit: int = 60
+    rate_limit_read_window_seconds: int = 60
+    rate_limit_ai_limit: int = 10
+    rate_limit_ai_window_seconds: int = 60
+    rate_limit_search_limit: int = 30
+    rate_limit_search_window_seconds: int = 60
+    rate_limit_upload_limit: int = 10
+    rate_limit_upload_window_seconds: int = 60
+    rate_limit_eval_limit: int = 5
+    rate_limit_eval_window_seconds: int = 60
+    trusted_proxies: list[str] = []
+
+    # Observability & Metrics Settings
+    metrics_enabled: bool = False
+    otel_enabled: bool = False
+    otel_service_name: str = "orchestra-backend"
+    otel_sample_ratio: float = 0.1
+    langsmith_tracing: bool = False
+
+    @field_validator(
+        "rate_limit_auth_limit",
+        "rate_limit_read_limit",
+        "rate_limit_ai_limit",
+        "rate_limit_search_limit",
+        "rate_limit_upload_limit",
+        "rate_limit_eval_limit",
+        "rate_limit_auth_window_seconds",
+        "rate_limit_read_window_seconds",
+        "rate_limit_ai_window_seconds",
+        "rate_limit_search_window_seconds",
+        "rate_limit_upload_window_seconds",
+        "rate_limit_eval_window_seconds",
+    )
+    @classmethod
+    def validate_positive_rate_limits(cls, v: int) -> int:
+        if v <= 0:
+            raise ValueError("Rate limit capacities and windows must be positive integers > 0")
+        return v
+
+    @field_validator("otel_sample_ratio")
+    @classmethod
+    def validate_sample_ratio(cls, v: float) -> float:
+        if not (0.0 <= v <= 1.0):
+            raise ValueError("otel_sample_ratio must be between 0.0 and 1.0")
+        return v
+
     @field_validator("cors_allowed_origins", mode="before")
     @classmethod
     def parse_cors_allowed_origins(cls, v: Any) -> list[str]:

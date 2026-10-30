@@ -9,6 +9,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.types import ASGIApp
 
 from app.core.context import get_request_id, reset_request_id, set_request_id
+from app.core.rate_limit import classify_route, limiter
 
 logger = logging.getLogger("orchestra.access")
 
@@ -112,3 +113,50 @@ class StructuredLoggingMiddleware(BaseHTTPMiddleware):
                     "error_category": error_category,
                 },
             )
+
+
+class RateLimitMiddleware(BaseHTTPMiddleware):
+    """
+    Enforces route-class sliding-window rate limiting.
+    Employs pre-routing compiled regex classification and two-stage identity resolution.
+    Returns HTTP 429 Too Many Requests on quota exhaustion with Retry-After header.
+    Returns HTTP 503 on Redis infrastructure failure for fail-closed classes.
+    """
+
+    async def dispatch(self, request: Request, call_next: Callable) -> Response:
+        route_template, route_class = classify_route(request.method, request.url.path)
+        request.state.route_template = route_template
+        request.state.route_class = route_class.value
+
+        allowed, status_code, retry_after = await limiter.check_rate_limit(request, route_class)
+        if not allowed:
+            from starlette.responses import JSONResponse
+
+            request_id = getattr(request.state, "request_id", get_request_id())
+
+            if status_code == 429:
+                return JSONResponse(
+                    status_code=429,
+                    content={
+                        "detail": f"Too many requests. Please try again in {retry_after} seconds.",
+                        "retry_after": retry_after,
+                        "request_id": request_id,
+                        "error_category": "rate_limited",
+                    },
+                    headers={
+                        "Retry-After": str(retry_after or 1),
+                        "X-Request-ID": request_id,
+                    },
+                )
+            elif status_code == 503:
+                return JSONResponse(
+                    status_code=503,
+                    content={
+                        "detail": "Rate limiting service temporarily unavailable.",
+                        "request_id": request_id,
+                        "error_category": "service_unavailable",
+                    },
+                    headers={"X-Request-ID": request_id},
+                )
+
+        return await call_next(request)

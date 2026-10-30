@@ -22,7 +22,11 @@ from app.core.config import settings
 from app.core.csrf import CSRFMiddleware
 from app.core.context import get_request_id
 from app.core.logging import configure_logging
-from app.core.middleware import RequestIDMiddleware, StructuredLoggingMiddleware
+from app.core.middleware import (
+    RateLimitMiddleware,
+    RequestIDMiddleware,
+    StructuredLoggingMiddleware,
+)
 
 logger = logging.getLogger("orchestra.main")
 
@@ -70,6 +74,7 @@ async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONR
 
 
 # Middleware Stack: Last added is outermost on inbound requests
+app.add_middleware(RateLimitMiddleware)
 app.add_middleware(CSRFMiddleware)
 app.add_middleware(StructuredLoggingMiddleware)
 app.add_middleware(RequestIDMiddleware)
