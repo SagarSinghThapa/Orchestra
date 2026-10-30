@@ -1,6 +1,8 @@
+import logging
 from contextlib import asynccontextmanager
-from fastapi import FastAPI
+from fastapi import FastAPI, Request, status
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from sqlalchemy import text
 
 from app.api.sessions import router as sessions_router
@@ -18,11 +20,17 @@ from app.database.connection import engine, dispose_engine
 from app.core.redis import init_redis_pool, close_redis_pool, get_redis_health
 from app.core.config import settings
 from app.core.csrf import CSRFMiddleware
+from app.core.context import get_request_id
+from app.core.logging import configure_logging
+from app.core.middleware import RequestIDMiddleware, StructuredLoggingMiddleware
+
+logger = logging.getLogger("orchestra.main")
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Application startup: initialize Redis pool (graceful fallback)
+    # Application startup: configure logging & initialize Redis pool
+    configure_logging()
     await init_redis_pool()
     yield
     # Application shutdown: cleanly close Redis and dispose of DB connection pool
@@ -37,13 +45,41 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:
+    request_id = getattr(request.state, "request_id", get_request_id())
+    logger.error(
+        "Unhandled server exception",
+        extra={
+            "request_id": request_id,
+            "error_category": "internal_error",
+            "error_type": exc.__class__.__name__,
+        },
+        exc_info=True,
+    )
+    return JSONResponse(
+        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        content={
+            "detail": "An internal server error occurred.",
+            "request_id": request_id,
+            "error_category": "internal_error",
+        },
+        headers={"X-Request-ID": request_id},
+    )
+
+
+# Middleware Stack: Last added is outermost on inbound requests
 app.add_middleware(CSRFMiddleware)
+app.add_middleware(StructuredLoggingMiddleware)
+app.add_middleware(RequestIDMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_allowed_origins,
     allow_credentials=True,
     allow_methods=["GET", "POST", "DELETE", "OPTIONS"],
-    allow_headers=["Content-Type", "X-Orchestra-Request", "Authorization"],
+    allow_headers=["Content-Type", "X-Orchestra-Request", "Authorization", "X-Request-ID"],
+    expose_headers=["X-Request-ID", "Retry-After"],
 )
 
 app.include_router(auth_router)
