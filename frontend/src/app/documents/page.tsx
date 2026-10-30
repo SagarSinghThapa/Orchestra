@@ -8,8 +8,8 @@ import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { LoadingState, EmptyState } from "@/components/ui/StateWrappers";
 
-const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
-const ALLOWED_EXTENSIONS = [".pdf", ".txt", ".md"];
+export const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
+export const ALLOWED_EXTENSIONS: readonly string[] = [".pdf", ".txt", ".md"];
 
 function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
