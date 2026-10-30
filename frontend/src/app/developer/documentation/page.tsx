@@ -1,128 +1,288 @@
 "use client";
 
-import { useState } from "react";
+import React, { useState } from "react";
+import { useProject } from "@/features/projects/ProjectContext";
+import { useAuth } from "@/features/auth/AuthContext";
 import { api } from "@/services/apiClient";
 import { Card } from "@/components/ui/Card";
-import { Button } from "@/components/ui/Button";
-import { LoadingState, ErrorState } from "@/components/ui/StateWrappers";
-import { ExecutionTrace } from "@/components/ui/ExecutionTrace";
-import { DocAgentResult, TaskStatus } from "@/types/developer";
+import { EmptyState } from "@/components/ui/StateWrappers";
+import { ClassificationBanner } from "@/components/developer/ClassificationBanner";
+import { SafeMarkdown } from "@/components/chat/SafeMarkdown";
+import { UnifiedDiffViewer } from "@/components/developer/UnifiedDiffViewer";
+import { DeveloperRequest, DeveloperResponse } from "@/types/developer";
 
 export default function DocumentationGeneratorPage() {
-  const [docType, setDocType] = useState("README");
-  const [mode, setMode] = useState<"preview" | "apply">("preview");
-  
-  const [status, setStatus] = useState<TaskStatus | null>(null);
-  const [traceId, setTraceId] = useState<string>("");
-  const [result, setResult] = useState<DocAgentResult | null>(null);
-  const [error, setError] = useState<string>("");
+  const { selectedProject } = useProject();
+  const { user } = useAuth();
 
-  const handleGenerate = async () => {
-    setStatus('running');
-    setError("");
-    
+  const [docType, setDocType] = useState("README");
+  const [prompt, setPrompt] = useState("Generate comprehensive technical documentation for this repository");
+  const [loading, setLoading] = useState(false);
+  const [writing, setWriting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [preview, setPreview] = useState<DeveloperResponse | null>(null);
+  const [writeSuccess, setWriteSuccess] = useState<DeveloperResponse | null>(null);
+  const [showConfirmModal, setShowConfirmModal] = useState(false);
+
+  const isViewer = user?.role === "viewer";
+
+  const handlePreview = async () => {
+    if (!selectedProject || loading) return;
+
+    setLoading(true);
+    setError(null);
+    setWriteSuccess(null);
+
     try {
-      const response = await api.post<{
-        trace_id: string;
-        output_payload: { result: DocAgentResult; status: TaskStatus };
-      }>("/developer/task", {
+      const payload: DeveloperRequest = {
         task_type: "doc_gen",
-        repo_ref: "./",
-        params: { doc_type: docType, mode }
-      });
-      
-      setTraceId(response.trace_id);
-      setResult(response.output_payload.result);
-      setStatus(response.output_payload.status);
-    } catch (e: unknown) {
-      setError((e as Error).message);
-      setStatus('error');
+        prompt: prompt.trim() || `Generate ${docType} documentation`,
+        mode: "preview",
+        context_hints: { doc_type: docType },
+      };
+
+      const res = await api.post<DeveloperResponse>(
+        `/projects/${selectedProject.id}/developer`,
+        payload
+      );
+      setPreview(res);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Failed to generate documentation preview");
+    } finally {
+      setLoading(false);
     }
   };
 
-  return (
-    <div className="max-w-5xl mx-auto space-y-6">
-      <h1 className="text-3xl font-bold">Documentation Generator</h1>
-      
-      <Card>
-        <div className="flex space-x-4 items-center">
-          <select 
-            value={docType}
-            onChange={e => setDocType(e.target.value)}
-            className="flex-1 border border-gray-300 rounded px-4 py-2 bg-white"
-          >
-            <option value="README">README.md</option>
-            <option value="repository_summary">Repository Summary</option>
-            <option value="architecture">Architecture Document</option>
-            <option value="API documentation">API Documentation</option>
-          </select>
-          
-          <label className="flex items-center space-x-2 cursor-pointer border p-2 rounded">
-            <input 
-              type="checkbox" 
-              checked={mode === "apply"} 
-              onChange={(e) => setMode(e.target.checked ? "apply" : "preview")} 
-              className="h-4 w-4"
-            />
-            <span>Write to disk (Apply)</span>
-          </label>
+  const handleWriteToDisk = async () => {
+    if (!preview || !selectedProject || isViewer) return;
 
-          <Button onClick={handleGenerate} disabled={status === 'running'}>
-            Generate
-          </Button>
+    setWriting(true);
+    setError(null);
+    setShowConfirmModal(false);
+
+    try {
+      const expected_file_hashes: Record<string, string> = {};
+      for (const patch of preview.proposed_patches) {
+        if (patch.original_hash) {
+          expected_file_hashes[patch.path] = patch.original_hash;
+        }
+      }
+
+      const payload: DeveloperRequest = {
+        task_type: "doc_gen",
+        prompt: prompt.trim() || `Generate and write ${docType} documentation`,
+        mode: "apply",
+        context_hints: { doc_type: docType },
+        expected_file_hashes:
+          Object.keys(expected_file_hashes).length > 0 ? expected_file_hashes : undefined,
+      };
+
+      const res = await api.post<DeveloperResponse>(
+        `/projects/${selectedProject.id}/developer`,
+        payload
+      );
+      setWriteSuccess(res);
+      setPreview(null);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Failed to write documentation to disk");
+    } finally {
+      setWriting(false);
+    }
+  };
+
+  if (!selectedProject) {
+    return (
+      <div className="max-w-4xl mx-auto py-12 px-4">
+        <EmptyState
+          title="No Project Selected"
+          description="Please select or create an active project workspace to use the Documentation Generator."
+        />
+      </div>
+    );
+  }
+
+  return (
+    <div className="max-w-5xl mx-auto space-y-6 pb-12">
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-3xl font-bold text-gray-900">Documentation Generator</h1>
+          <p className="text-sm text-gray-500 mt-1">
+            Automated repository documentation synthesis with preview-before-write safety.
+          </p>
+        </div>
+        <span className="text-xs font-semibold px-2.5 py-1 bg-gray-100 text-gray-700 rounded-full border">
+          Workspace: {selectedProject.name}
+        </span>
+      </div>
+
+      <ClassificationBanner />
+
+      {error && (
+        <div className="rounded-lg bg-red-50 p-4 border border-red-200 text-sm text-red-700 flex items-start justify-between">
+          <span>{error}</span>
+          <button
+            onClick={() => setError(null)}
+            className="text-red-500 hover:text-red-700 font-bold ml-4 cursor-pointer"
+          >
+            ✕
+          </button>
+        </div>
+      )}
+
+      {/* Write Success Banner */}
+      {writeSuccess && (
+        <div className="rounded-lg bg-emerald-50 p-5 border border-emerald-200">
+          <div className="flex items-center gap-2 text-emerald-800 font-bold text-base mb-1">
+            <svg className="h-5 w-5 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+            </svg>
+            <span>Documentation Written to Disk</span>
+          </div>
+          <p className="text-xs text-emerald-700">{writeSuccess.summary}</p>
+        </div>
+      )}
+
+      {/* Generator Form */}
+      <Card>
+        <div className="space-y-4">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div>
+              <label className="block text-xs font-semibold uppercase tracking-wider text-gray-500 mb-1">
+                Document Target
+              </label>
+              <select
+                value={docType}
+                onChange={(e) => setDocType(e.target.value)}
+                disabled={loading || writing}
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm text-gray-900 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+              >
+                <option value="README">README.md</option>
+                <option value="architecture">Architecture Guide</option>
+                <option value="api_reference">API Documentation</option>
+                <option value="repository_summary">Repository Overview</option>
+              </select>
+            </div>
+
+            <div className="md:col-span-2">
+              <label className="block text-xs font-semibold uppercase tracking-wider text-gray-500 mb-1">
+                Custom Focus / Instructions
+              </label>
+              <input
+                type="text"
+                placeholder="e.g. Focus on deployment steps and environment configuration..."
+                value={prompt}
+                onChange={(e) => setPrompt(e.target.value)}
+                disabled={loading || writing}
+                className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
+          </div>
+
+          <div className="flex items-center justify-between pt-2 border-t border-gray-100">
+            <span className="text-xs text-gray-500 italic">
+              Stage 1 produces markdown preview without modifying workspace files.
+            </span>
+            <button
+              onClick={handlePreview}
+              disabled={loading || writing || !prompt.trim()}
+              className="px-5 py-2.5 rounded-lg text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50 transition-colors shadow-sm cursor-pointer"
+            >
+              {loading ? "Generating Preview..." : "Generate Preview"}
+            </button>
+          </div>
         </div>
       </Card>
 
-      {status && traceId && (
-        <ExecutionTrace traceId={traceId} agent="Documentation Agent" status={status} />
-      )}
+      {/* Documentation Preview */}
+      {preview && (
+        <div className="space-y-6 animate-in fade-in duration-200">
+          <Card>
+            <div className="space-y-4">
+              <div className="flex items-center justify-between border-b pb-3">
+                <div>
+                  <h2 className="text-lg font-bold text-gray-900">Generated Preview</h2>
+                  <p className="text-xs text-gray-500 mt-0.5">
+                    Review generated markdown structure before writing to disk.
+                  </p>
+                </div>
+                <span className="text-xs font-semibold px-2.5 py-1 bg-purple-50 text-purple-700 rounded-full border border-purple-200">
+                  Target: {docType}
+                </span>
+              </div>
 
-      {status === 'running' && <LoadingState message="Extracting context and generating markdown..." />}
-      {status === 'error' && <ErrorState message={error} onRetry={handleGenerate} />}
+              {/* Rendered Markdown */}
+              <div className="p-4 bg-gray-50 rounded-lg border">
+                <SafeMarkdown
+                  content={preview.documentation || preview.summary || "No documentation generated."}
+                />
+              </div>
 
-      {status === 'success' && result && (
-        <div className="space-y-6">
-          
-          {result.warnings.length > 0 && (
-            <Card className="border-l-4 border-l-yellow-500 bg-yellow-50">
-              <h3 className="font-bold text-yellow-800">Anti-Hallucination Warnings</h3>
-              <ul className="list-disc pl-5 text-sm text-yellow-700">
-                {result.warnings.map((w, i) => <li key={i}>{w}</li>)}
-              </ul>
-            </Card>
-          )}
+              {/* Patches if generated */}
+              {preview.proposed_patches && preview.proposed_patches.length > 0 && (
+                <div className="space-y-3 pt-3">
+                  <h3 className="text-xs font-semibold uppercase tracking-wider text-gray-500">
+                    File Modifications ({preview.proposed_patches.length})
+                  </h3>
+                  {preview.proposed_patches.map((patch, idx) => (
+                    <UnifiedDiffViewer key={idx} diff={patch.diff} path={patch.path} />
+                  ))}
+                </div>
+              )}
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            <div className="md:col-span-2">
-              <Card className="h-full">
-                <div className="flex justify-between items-center mb-4 border-b pb-2">
-                  <h2 className="text-xl font-bold">Markdown Preview</h2>
-                  {result.artifact && (
-                    <span className="text-xs bg-green-100 text-green-800 px-2 py-1 rounded">
-                      Saved to {result.artifact}
-                    </span>
+              {/* Action Controls */}
+              <div className="pt-4 border-t border-gray-100 flex items-center justify-between">
+                <div>
+                  {isViewer && (
+                    <p className="text-xs text-amber-600 font-medium">
+                      Viewer role is not authorized to write files to disk.
+                    </p>
                   )}
                 </div>
-                <pre className="p-4 bg-gray-50 text-sm overflow-auto max-h-[500px] border rounded whitespace-pre-wrap">
-                  {result.content}
-                </pre>
-              </Card>
+
+                <div className="flex items-center gap-3">
+                  <button
+                    onClick={() => setPreview(null)}
+                    disabled={writing}
+                    className="px-4 py-2 text-xs font-semibold text-gray-600 hover:text-gray-900 cursor-pointer"
+                  >
+                    Discard Preview
+                  </button>
+
+                  <button
+                    onClick={() => setShowConfirmModal(true)}
+                    disabled={writing || isViewer}
+                    className="px-6 py-2.5 rounded-lg text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors shadow-sm cursor-pointer"
+                  >
+                    {writing ? "Writing to Disk..." : "Write to Workspace"}
+                  </button>
+                </div>
+              </div>
             </div>
-            
-            <div>
-              <Card className="h-full bg-gray-50">
-                <h2 className="text-lg font-bold mb-4">Verified Sources</h2>
-                <p className="text-sm text-gray-500 mb-2">
-                  This documentation was derived explicitly from the following verified files to prevent LLM hallucination:
-                </p>
-                <ul className="space-y-1">
-                  {result.sources.map(s => (
-                    <li key={s} className="bg-white px-2 py-1 border rounded text-xs font-mono break-all text-blue-700">
-                      {s}
-                    </li>
-                  ))}
-                </ul>
-              </Card>
+          </Card>
+        </div>
+      )}
+
+      {/* Confirmation Modal */}
+      {showConfirmModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+          <div className="bg-white rounded-xl shadow-xl max-w-md w-full p-6 animate-in fade-in zoom-in-95 duration-150">
+            <h3 className="text-base font-bold text-gray-900 mb-2">Confirm File Write</h3>
+            <p className="text-xs text-gray-600 leading-relaxed mb-4">
+              Write documentation to workspace disk? This will modify or create files in the active project directory.
+            </p>
+            <div className="flex justify-end gap-3">
+              <button
+                onClick={() => setShowConfirmModal(false)}
+                className="px-4 py-2 text-xs font-semibold text-gray-600 hover:text-gray-800 cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleWriteToDisk}
+                className="px-5 py-2 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg shadow-sm cursor-pointer"
+              >
+                Yes, Write Documentation
+              </button>
             </div>
           </div>
         </div>
