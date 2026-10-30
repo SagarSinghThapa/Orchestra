@@ -22,7 +22,10 @@ export default function DocumentationGeneratorPage() {
     setError("");
     
     try {
-      const response = await api.post("/developer/task", {
+      const response = await api.post<{
+        trace_id: string;
+        output_payload: { result: DocAgentResult; status: TaskStatus };
+      }>("/developer/task", {
         task_type: "doc_gen",
         repo_ref: "./",
         params: { doc_type: docType, mode }

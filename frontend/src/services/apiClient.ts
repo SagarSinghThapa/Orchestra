@@ -1,147 +1,197 @@
-import { DeveloperTaskOutput } from "@/types/developer";
+export class ApiError extends Error {
+  constructor(
+    public status: number,
+    message: string,
+    public details?: unknown
+  ) {
+    super(message);
+    this.name = "ApiError";
+  }
+}
 
-const BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api";
+export type AuthFailureHandler = () => void;
+let onAuthFailure: AuthFailureHandler | null = null;
+
+export function setAuthFailureHandler(handler: AuthFailureHandler | null) {
+  onAuthFailure = handler;
+}
+
+export function getBaseUrl(): string {
+  const rawUrl = process.env.NEXT_PUBLIC_API_URL;
+  if (rawUrl) {
+    if (!rawUrl.startsWith("http://") && !rawUrl.startsWith("https://")) {
+      throw new Error("Invalid NEXT_PUBLIC_API_URL: must start with http:// or https://");
+    }
+    return rawUrl.replace(/\/+$/, "");
+  }
+  if (process.env.NODE_ENV === "production") {
+    throw new Error("NEXT_PUBLIC_API_URL must be defined in production environment");
+  }
+  return "http://localhost:8000";
+}
+
+let refreshPromise: Promise<void> | null = null;
 
 class ApiAdapter {
-  async request(endpoint: string, options: RequestInit = {}) {
-    const token = typeof window !== 'undefined' ? localStorage.getItem("jwt_token") : null;
-    
-    const headers = {
-      "Content-Type": "application/json",
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      ...options.headers,
+  async request<T = unknown>(
+    endpoint: string,
+    options: RequestInit = {},
+    isRetry = false
+  ): Promise<T> {
+    const isFormData = typeof FormData !== "undefined" && options.body instanceof FormData;
+
+    const headers: Record<string, string> = {
+      ...(isFormData ? {} : { "Content-Type": "application/json" }),
+      "X-Orchestra-Request": "true",
+      ...((options.headers as Record<string, string>) || {}),
     };
-    
-    // Mock Mode check
-    if (process.env.NEXT_PUBLIC_USE_MOCK_API === 'true') {
-      console.log(`[Mock API Request]: ${endpoint}`, options.body);
-      return this._handleMock(endpoint, options);
+
+    // Temporary mock fallback for unmigrated endpoints while in mock mode (Wave 10.5 removes this)
+    if (process.env.NEXT_PUBLIC_USE_MOCK_API === "true" && (endpoint === "/developer/task" || endpoint === "/evaluations/summary")) {
+      return this._handleMock(endpoint, options) as Promise<T>;
     }
-    
+
+    const baseUrl = getBaseUrl();
+    const url = endpoint.startsWith("http") ? endpoint : `${baseUrl}${endpoint}`;
+
     try {
-      const response = await fetch(`${BASE_URL}${endpoint}`, { ...options, headers });
-      if (!response.ok) {
-        // Handle authentication/authorization expiration
-        if (response.status === 401 || response.status === 403) {
-          if (typeof window !== 'undefined') {
-            localStorage.removeItem("jwt_token");
-          }
+      const response = await fetch(url, {
+        ...options,
+        headers,
+        credentials: "include",
+      });
+
+      // Handle 401 Unauthorized with single-flight refresh queue
+      if (response.status === 401 && !isRetry && !this._isAuthRoute(endpoint)) {
+        if (!refreshPromise) {
+          refreshPromise = (async () => {
+            try {
+              const refreshResp = await fetch(`${baseUrl}/auth/refresh`, {
+                method: "POST",
+                credentials: "include",
+                headers: {
+                  "Content-Type": "application/json",
+                  "X-Orchestra-Request": "true",
+                },
+              });
+              if (!refreshResp.ok) {
+                if (onAuthFailure) onAuthFailure();
+                throw new ApiError(refreshResp.status, "Session expired. Please log in again.");
+              }
+            } catch (err) {
+              if (onAuthFailure) onAuthFailure();
+              throw err;
+            } finally {
+              refreshPromise = null;
+            }
+          })();
         }
+
+        try {
+          await refreshPromise;
+          // Retry original request once
+          return await this.request<T>(endpoint, options, true);
+        } catch {
+          throw new ApiError(401, "Session expired. Please log in again.");
+        }
+      }
+
+      if (!response.ok) {
         let errorData: Record<string, unknown> | null = null;
         try {
           errorData = await response.json();
         } catch {
           // Response body was not JSON
         }
-        const message = (errorData?.detail as string) || (errorData?.message as string) || `API Error (${response.status}): ${response.statusText}`;
-        throw new Error(message);
+
+        const message =
+          (typeof errorData?.detail === "string" ? errorData.detail : null) ||
+          (typeof errorData?.message === "string" ? errorData.message : null) ||
+          `API Error (${response.status}): ${response.statusText}`;
+
+        throw new ApiError(response.status, message, errorData?.detail || errorData);
       }
-      return response.json();
+
+      // Handle 204 No Content or empty responses cleanly
+      if (response.status === 204 || response.headers.get("content-length") === "0") {
+        return null as unknown as T;
+      }
+
+      return (await response.json()) as T;
     } catch (error) {
-      console.error(error);
-      throw error;
+      if (error instanceof ApiError) {
+        throw error;
+      }
+      throw new ApiError(
+        0,
+        "Orchestra backend unreachable. Please verify server connectivity.",
+        error
+      );
     }
   }
 
-
-  get(endpoint: string) {
-    return this.request(endpoint, { method: "GET" });
+  private _isAuthRoute(endpoint: string): boolean {
+    return (
+      endpoint === "/auth/login" ||
+      endpoint === "/auth/register" ||
+      endpoint === "/auth/refresh" ||
+      endpoint.endsWith("/auth/login") ||
+      endpoint.endsWith("/auth/register") ||
+      endpoint.endsWith("/auth/refresh")
+    );
   }
 
-  post(endpoint: string, data: unknown) {
-    return this.request(endpoint, { method: "POST", body: JSON.stringify(data) });
+  get<T = unknown>(endpoint: string, options: RequestInit = {}): Promise<T> {
+    return this.request<T>(endpoint, { ...options, method: "GET" });
   }
 
-  // Temporary mock handler for Developer Tasks
+  post<T = unknown>(endpoint: string, data?: unknown, options: RequestInit = {}): Promise<T> {
+    const isFormData = typeof FormData !== "undefined" && data instanceof FormData;
+    return this.request<T>(endpoint, {
+      ...options,
+      method: "POST",
+      body: isFormData ? (data as FormData) : JSON.stringify(data),
+    });
+  }
+
+  delete<T = unknown>(endpoint: string, options: RequestInit = {}): Promise<T> {
+    return this.request<T>(endpoint, { ...options, method: "DELETE" });
+  }
+
+  // Temporary mock handler retained only for unmigrated endpoints (Wave 10.5 decommissions this completely)
   private async _handleMock(endpoint: string, options: RequestInit): Promise<unknown> {
-    await new Promise(resolve => setTimeout(resolve, 1500)); // Simulate latency
-    
-    if (endpoint === '/developer/task' && options.body) {
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    if (endpoint === "/developer/task" && options.body) {
       const body = JSON.parse(options.body as string);
-      
-      const output: DeveloperTaskOutput = {
-        status: 'success',
-        artifacts: [],
-        result: {}
-      };
-
-      if (body.task_type === 'repo_analysis') {
-        output.result = {
-          repository: { size: "1.2MB", files: 124 },
-          languages: ["TypeScript", "Python"],
-          frameworks: ["Next.js", "FastAPI"],
-          architecture: { inferred: "Microservices with Agentic Subgraphs" },
-          important_files: ["package.json", "main.py"],
-          dependencies: ["react", "langgraph"],
-          entry_points: ["src/app/layout.tsx", "backend/main.py"],
-          modules: ["frontend", "backend"],
-          tests: { coverage: "80%" },
-          risks: ["Missing env configurations in mock mode."],
-          recommendations: ["Ensure API adapter is connected."]
-        };
-      } 
-      else if (body.task_type === 'code_gen') {
-        output.result = {
-          summary: `Successfully generated ${body.params?.mode === 'apply' ? 'and applied' : '(preview)'} changes.`,
-          plan: ["Understand context", "Write code", "Validate AST"],
-          files_changed: ["src/components/ui/Button.tsx"],
-          diffs: {
-            "src/components/ui/Button.tsx": "@@ -1,5 +1,6 @@\n+ // Optimized\n export function Button"
-          },
-          validation: {
-            "src/components/ui/Button.tsx": "Valid"
-          },
-          warnings: []
-        };
-        if (body.params?.mode === 'apply') output.artifacts = ["src/components/ui/Button.tsx"];
-      }
-      else if (body.task_type === 'doc_gen') {
-        output.result = {
-          document_type: body.params?.doc_type || 'README',
-          content: `# ${body.params?.doc_type || 'README'}\n\nGenerated from mock context.`,
-          sources: ["src/app/layout.tsx", "package.json"],
-          artifact: body.params?.mode === 'apply' ? `docs/${body.params?.doc_type}.md` : undefined,
-          warnings: []
-        };
-        if (body.params?.mode === 'apply') output.artifacts = [`docs/${body.params?.doc_type}.md`];
-      }
-
-      return { output_payload: output, trace_id: `trace-mock-${Date.now()}` };
-    }
-
-    if (endpoint === '/evaluations/summary') {
       return {
-        total_runs: 47,
-        passed: 38,
-        failed: 6,
-        running: 2,
-        pending: 1,
-        metrics: [
-          { name: "Avg Latency", value: 342, unit: "ms", trend: "down" as const },
-          { name: "Success Rate", value: 80.9, unit: "%", trend: "up" as const },
-          { name: "Total Runs", value: 47, unit: "runs", trend: "up" as const },
-          { name: "Active Benchmarks", value: 3, unit: "", trend: "stable" as const },
-        ],
-        agents: [
-          { agent: "Repository Agent", total_runs: 20, passed: 18, failed: 2, avg_latency_ms: 280, success_rate: 0.90 },
-          { agent: "Coding Agent", total_runs: 15, passed: 12, failed: 3, avg_latency_ms: 410, success_rate: 0.80 },
-          { agent: "Documentation Agent", total_runs: 12, passed: 8, failed: 1, avg_latency_ms: 190, success_rate: 0.73 },
-        ],
-        benchmarks: [
-          { benchmark: "Code Quality", runs: 15, avg_score: 82.3, best_score: 96, worst_score: 54 },
-          { benchmark: "Doc Accuracy", runs: 12, avg_score: 78.1, best_score: 92, worst_score: 61 },
-          { benchmark: "Repo Analysis", runs: 20, avg_score: 91.7, best_score: 99, worst_score: 72 },
-        ],
-        recent_runs: [
-          { id: "run-a1b2c3d4", agent: "Repository Agent", benchmark: "Repo Analysis", status: "passed" as const, started_at: "2026-09-05T14:30:00Z", duration_ms: 245, metrics: [], },
-          { id: "run-e5f6g7h8", agent: "Coding Agent", benchmark: "Code Quality", status: "failed" as const, started_at: "2026-09-05T14:15:00Z", duration_ms: 520, metrics: [], failure_reason: "AST validation failed on generated output" },
-          { id: "run-i9j0k1l2", agent: "Documentation Agent", benchmark: "Doc Accuracy", status: "passed" as const, started_at: "2026-09-05T13:45:00Z", duration_ms: 180, metrics: [], },
-          { id: "run-m3n4o5p6", agent: "Coding Agent", benchmark: "Code Quality", status: "running" as const, started_at: "2026-09-05T15:00:00Z", metrics: [], },
-          { id: "run-q7r8s9t0", agent: "Repository Agent", benchmark: "Repo Analysis", status: "passed" as const, started_at: "2026-09-05T12:00:00Z", duration_ms: 310, metrics: [], },
-        ],
+        output_payload: {
+          status: "success",
+          artifacts: [],
+          result: {
+            summary: `Mock result for ${body.task_type}`,
+            plan: ["Inspect workspace", "Synthesize code", "Validate AST"],
+            files_changed: [],
+            diffs: {},
+            validation: {},
+            warnings: [],
+          },
+        },
+        trace_id: `trace-mock-${Date.now()}`,
       };
     }
-
+    if (endpoint === "/evaluations/summary") {
+      return {
+        total_runs: 0,
+        passed: 0,
+        failed: 0,
+        running: 0,
+        pending: 0,
+        metrics: [],
+        agents: [],
+        benchmarks: [],
+        recent_runs: [],
+      };
+    }
     return { success: true, mocked: true };
   }
 }

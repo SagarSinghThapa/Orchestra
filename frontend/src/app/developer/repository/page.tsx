@@ -21,7 +21,10 @@ export default function RepositoryIntelPage() {
     setError("");
     
     try {
-      const response = await api.post("/developer/task", {
+      const response = await api.post<{
+        trace_id: string;
+        output_payload: { result: RepositoryAnalysisResult; status: TaskStatus };
+      }>("/developer/task", {
         task_type: "repo_analysis",
         repo_ref: repoRef,
         params: {}

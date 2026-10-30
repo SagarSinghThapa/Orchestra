@@ -1,4 +1,5 @@
-from typing import Optional
+from typing import Any, Optional
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -19,6 +20,10 @@ class Settings(BaseSettings):
     refresh_token_expire_days: int = 7
     cookie_secure: bool = False
     cookie_samesite: str = "lax"
+    cors_allowed_origins: list[str] = [
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+    ]
 
     # Storage & Document Ingestion Settings
     storage_local_root: str = "data/storage"
@@ -59,6 +64,22 @@ class Settings(BaseSettings):
     max_llm_calls_per_request: int = 3
     # Developer Subsystem Settings
     workspace_base_dir: str = "workspaces"
+
+    @field_validator("cors_allowed_origins", mode="before")
+    @classmethod
+    def parse_cors_allowed_origins(cls, v: Any) -> list[str]:
+        if isinstance(v, str):
+            v = v.strip()
+            if v.startswith("[") and v.endswith("]"):
+                import json
+                try:
+                    return json.loads(v)
+                except Exception:
+                    pass
+            return [origin.strip() for origin in v.split(",") if origin.strip()]
+        elif isinstance(v, (list, tuple, set)):
+            return list(v)
+        return v
 
     model_config = SettingsConfigDict(
         env_file=".env",

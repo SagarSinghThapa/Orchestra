@@ -23,7 +23,10 @@ export default function CodingAssistantPage() {
     setError("");
     
     try {
-      const response = await api.post("/developer/task", {
+      const response = await api.post<{
+        trace_id: string;
+        output_payload: { result: CodingAgentResult; status: TaskStatus };
+      }>("/developer/task", {
         task_type: "code_gen",
         repo_ref: "./",
         params: { task_description: task, mode }

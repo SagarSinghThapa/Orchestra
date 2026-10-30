@@ -1,5 +1,6 @@
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 
 from app.api.sessions import router as sessions_router
@@ -15,6 +16,7 @@ from app.auth.router import router as auth_router
 from app.database.connection import engine, dispose_engine
 from app.core.redis import init_redis_pool, close_redis_pool, get_redis_health
 from app.core.config import settings
+from app.core.csrf import CSRFMiddleware
 
 
 @asynccontextmanager
@@ -32,6 +34,15 @@ app = FastAPI(
     description="Multi-Agent AI Engineering Platform API",
     version="1.0.0",
     lifespan=lifespan,
+)
+
+app.add_middleware(CSRFMiddleware)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=settings.cors_allowed_origins,
+    allow_credentials=True,
+    allow_methods=["GET", "POST", "DELETE", "OPTIONS"],
+    allow_headers=["Content-Type", "X-Orchestra-Request", "Authorization"],
 )
 
 app.include_router(auth_router)
