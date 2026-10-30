@@ -69,6 +69,7 @@ def test_cors_preflight_and_header_exposure():
 
 
 def test_cors_headers_on_429(monkeypatch):
+    monkeypatch.setattr(settings, "rate_limit_enabled", True)
     monkeypatch.setattr(settings, "environment", "test")
     monkeypatch.setattr(settings, "rate_limit_backend", "memory")
 

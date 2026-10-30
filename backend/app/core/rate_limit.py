@@ -193,6 +193,10 @@ class MemoryRateLimiterStorage:
         """Allows injecting deterministic mock clocks in tests."""
         self._time_func = time_func
 
+    def clear(self) -> None:
+        """Clears all in-memory rate limiting buckets (useful for test resets)."""
+        self._buckets.clear()
+
     async def check_and_record(
         self, key: str, window_seconds: float, limit: int
     ) -> Tuple[bool, int, int]:
@@ -299,8 +303,8 @@ class RateLimiter:
                 # Fail open for CHEAP_READ
                 return (True, 200, None)
 
-        # Fallback to in-memory limiter for development/test environments
-        if settings.environment in ("development", "test") or not use_redis:
+        # Fallback to in-memory limiter for development/test environments or when Redis is not configured
+        if settings.environment in ("development", "test") or not use_redis or not settings.redis_url:
             allowed, remaining, retry_after = await self.memory_storage.check_and_record(
                 key, float(window), limit
             )

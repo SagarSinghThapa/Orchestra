@@ -183,6 +183,7 @@ def test_identity_resolution_precedence(monkeypatch):
 
 
 def test_fastapi_rate_limit_integration(monkeypatch):
+    monkeypatch.setattr(settings, "rate_limit_enabled", True)
     monkeypatch.setattr(settings, "rate_limit_backend", "memory")
     monkeypatch.setattr(settings, "environment", "test")
 
@@ -238,7 +239,13 @@ async def test_redis_failure_policy_differentiated():
 
     # Simulate production Redis mode with failing client
     orig_backend = settings.rate_limit_backend
+    orig_env = settings.environment
+    orig_redis = settings.redis_url
+    orig_enabled = settings.rate_limit_enabled
+    settings.rate_limit_enabled = True
     settings.rate_limit_backend = "redis"
+    settings.environment = "production"
+    settings.redis_url = "redis://localhost:6379"
     try:
         from unittest.mock import patch
 
@@ -259,3 +266,6 @@ async def test_redis_failure_policy_differentiated():
             assert status_code == 200
     finally:
         settings.rate_limit_backend = orig_backend
+        settings.environment = orig_env
+        settings.redis_url = orig_redis
+        settings.rate_limit_enabled = orig_enabled

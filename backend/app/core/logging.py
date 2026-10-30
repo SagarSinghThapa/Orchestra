@@ -19,7 +19,7 @@ SECRET_PATTERNS = [
     # Bearer tokens
     (re.compile(r"Bearer\s+[A-Za-z0-9_\-\.]+", re.IGNORECASE), "Bearer [REDACTED_TOKEN]"),
     # OpenAI / generic API keys
-    (re.compile(r"sk-[A-Za-z0-9]{20,}"), "sk-[REDACTED_KEY]"),
+    (re.compile(r"sk-[A-Za-z0-9_\-]{20,}"), "sk-[REDACTED_KEY]"),
     # Anthropic API keys
     (re.compile(r"sk-ant-[A-Za-z0-9_\-]{20,}"), "sk-ant-[REDACTED_KEY]"),
     # GitHub personal / app tokens
@@ -78,9 +78,17 @@ class OrchestraJsonFormatter(JsonFormatter):
         # Ensure log level is upper case
         if "level" not in log_record and hasattr(record, "levelname"):
             log_record["level"] = record.levelname.upper()
-        # Scrub message
-        if "message" in log_record and isinstance(log_record["message"], str):
-            log_record["message"] = scrub_secrets(log_record["message"])
+        # Scrub all record fields for secrets and sensitive key names
+        for k in list(log_record.keys()):
+            if k in ("timestamp", "request_id", "level"):
+                continue
+            if isinstance(k, str) and any(s in k.lower() for s in SENSITIVE_KEY_NAMES):
+                if k == "message":
+                    log_record[k] = scrub_secrets(log_record[k])
+                else:
+                    log_record[k] = "[REDACTED]"
+            else:
+                log_record[k] = scrub_secrets(log_record[k])
 
 
 _logging_configured = False
