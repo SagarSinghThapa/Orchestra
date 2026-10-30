@@ -1,204 +1,100 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
-import { api } from "@/services/apiClient";
+import React from "react";
 import { Card } from "@/components/ui/Card";
-import { LoadingState, ErrorState, EmptyState } from "@/components/ui/StateWrappers";
-import { MetricCard } from "@/components/evaluations/MetricCard";
-import { StatusBadge } from "@/components/evaluations/StatusBadge";
-import { PerformanceBar } from "@/components/evaluations/PerformanceBar";
-import { RunTable } from "@/components/evaluations/RunTable";
-import { EvaluationSummary, EvaluationFilters, EvalStatus } from "@/types/evaluations";
 
 export default function EvaluationsPage() {
-  const [summary, setSummary] = useState<EvaluationSummary | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
-
-  // Filters
-  const [filters, setFilters] = useState<EvaluationFilters>({});
-
-  const fetchSummary = async () => {
-    setLoading(true);
-    setError("");
-    try {
-      const data = await api.get("/evaluations/summary");
-      setSummary(data as EvaluationSummary);
-    } catch (e: unknown) {
-      setError((e as Error).message);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    let active = true;
-    const initFetch = async () => {
-      try {
-        const data = await api.get("/evaluations/summary");
-        if (active) setSummary(data as EvaluationSummary);
-      } catch (e: unknown) {
-        if (active) setError((e as Error).message);
-      } finally {
-        if (active) setLoading(false);
-      }
-    };
-    initFetch();
-    return () => { active = false; };
-  }, []);
-
-  // Filtered runs
-  const filteredRuns = useMemo(() => {
-    if (!summary) return [];
-    return summary.recent_runs.filter(run => {
-      if (filters.agent && run.agent !== filters.agent) return false;
-      if (filters.benchmark && run.benchmark !== filters.benchmark) return false;
-      if (filters.status && run.status !== filters.status) return false;
-      return true;
-    });
-  }, [summary, filters]);
-
-  // Status distribution
-  const statusCounts = useMemo(() => {
-    if (!summary) return { passed: 0, failed: 0, running: 0, pending: 0, error: 0 };
-    return {
-      passed: summary.passed,
-      failed: summary.failed,
-      running: summary.running,
-      pending: summary.pending,
-      error: 0,
-    };
-  }, [summary]);
-
-  const totalForBar = Math.max(statusCounts.passed + statusCounts.failed + statusCounts.running + statusCounts.pending, 1);
-
-  if (loading) return <LoadingState message="Loading evaluation dashboard..." />;
-  if (error) return <ErrorState message={error} onRetry={fetchSummary} />;
-  if (!summary) return <EmptyState title="No Evaluations" description="The evaluation infrastructure has not produced any results yet. Runs will appear here once M1/M2 pipelines are active." />;
+  const plannedPillars = [
+    {
+      title: "RAG Faithfulness & Hallucination Scoring",
+      badge: "DeepEval / RAGAS",
+      desc: "Automated verification comparing orchestrator research claims against verbatim chunk citations to guarantee zero ungrounded assertions.",
+      status: "Scheduled",
+    },
+    {
+      title: "Conversational Context Retention",
+      badge: "Memory Benchmarks",
+      desc: "Deterministic test harness assessing summary compression quality, multi-turn entity tracking, and sliding-window boundary limits.",
+      status: "Scheduled",
+    },
+    {
+      title: "AST Syntax & Tool Execution Safety",
+      badge: "Code Benchmarks",
+      desc: "Continuous evaluation of generated Python and TypeScript diffs against tree-sitter AST parsers and subprocess sandbox boundaries.",
+      status: "Scheduled",
+    },
+    {
+      title: "Latency & Token Economics",
+      badge: "Telemetry Auditing",
+      desc: "Real-time tracking of request-wide LLM token budgets, gateway response latencies, and checkpoint storage serialization efficiency.",
+      status: "Scheduled",
+    },
+  ];
 
   return (
-    <div className="max-w-6xl mx-auto space-y-8">
-      <div className="flex justify-between items-center">
-        <h1 className="text-3xl font-bold text-gray-900">Evaluation Dashboard</h1>
-        <span className="text-xs text-gray-400 bg-gray-100 px-3 py-1 rounded-full">Provisional — awaiting M1/M2 contracts</span>
+    <div className="max-w-5xl mx-auto space-y-6 pb-12">
+      <div>
+        <h1 className="text-3xl font-bold text-gray-900">Model &amp; Agent Evaluations</h1>
+        <p className="text-sm text-gray-500 mt-1">
+          Automated benchmarking suite for multi-agent intelligence, faithfulness, and safety telemetry.
+        </p>
       </div>
 
-      {/* Metric Cards */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        {summary.metrics.map(m => (
-          <MetricCard key={m.name} metric={m} />
-        ))}
+      {/* Honest Phase 11 Roadmap Banner */}
+      <div className="rounded-xl border border-blue-200 bg-blue-50/60 p-6 shadow-xs">
+        <div className="flex items-start gap-3">
+          <div className="p-2 bg-blue-600 text-white rounded-lg">
+            <svg className="h-6 w-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"
+              />
+            </svg>
+          </div>
+          <div>
+            <span className="inline-block px-2.5 py-0.5 rounded-full text-xs font-bold bg-blue-100 text-blue-800 mb-1">
+              Phase 11 Preview — Model &amp; Agent Evaluations
+            </span>
+            <h2 className="text-base font-bold text-gray-900">
+              Evaluations Engine Scheduled for Phase 11
+            </h2>
+            <p className="text-xs text-gray-600 mt-1 leading-relaxed">
+              Automated hallucination rate benchmarks, RAG faithfulness metrics, coding AST validation telemetry,
+              and latency tracking are scheduled for implementation in Phase 11. Mock metrics have been completely
+              decommissioned to ensure production data integrity.
+            </p>
+          </div>
+        </div>
       </div>
 
-      {/* Status Distribution Bar */}
-      <Card>
-        <h2 className="text-lg font-bold mb-3">Status Distribution</h2>
-        <div className="flex rounded-full overflow-hidden h-6">
-          <div className="bg-green-500 transition-all" style={{ width: `${(statusCounts.passed / totalForBar) * 100}%` }} title={`Passed: ${statusCounts.passed}`} />
-          <div className="bg-red-500 transition-all" style={{ width: `${(statusCounts.failed / totalForBar) * 100}%` }} title={`Failed: ${statusCounts.failed}`} />
-          <div className="bg-blue-500 transition-all animate-pulse" style={{ width: `${(statusCounts.running / totalForBar) * 100}%` }} title={`Running: ${statusCounts.running}`} />
-          <div className="bg-gray-300 transition-all" style={{ width: `${(statusCounts.pending / totalForBar) * 100}%` }} title={`Pending: ${statusCounts.pending}`} />
-        </div>
-        <div className="flex space-x-6 mt-2 text-xs text-gray-500">
-          <span className="flex items-center"><span className="w-3 h-3 rounded-full bg-green-500 mr-1"></span> Passed ({statusCounts.passed})</span>
-          <span className="flex items-center"><span className="w-3 h-3 rounded-full bg-red-500 mr-1"></span> Failed ({statusCounts.failed})</span>
-          <span className="flex items-center"><span className="w-3 h-3 rounded-full bg-blue-500 mr-1"></span> Running ({statusCounts.running})</span>
-          <span className="flex items-center"><span className="w-3 h-3 rounded-full bg-gray-300 mr-1"></span> Pending ({statusCounts.pending})</span>
-        </div>
-      </Card>
-
-      {/* Agent Performance */}
-      <Card>
-        <h2 className="text-lg font-bold mb-4">Agent Performance</h2>
-        {summary.agents.length === 0 ? (
-          <EmptyState title="No Agent Data" description="Agent performance data will appear after evaluation runs complete." />
-        ) : (
-          <div className="space-y-1">
-            {summary.agents.map(a => <PerformanceBar key={a.agent} agent={a} />)}
-          </div>
-        )}
-      </Card>
-
-      {/* Benchmark Results */}
-      <Card>
-        <h2 className="text-lg font-bold mb-4">Benchmark Results</h2>
-        {summary.benchmarks.length === 0 ? (
-          <EmptyState title="No Benchmarks" description="Benchmark definitions are owned by Member 1. Results will appear once benchmarks are configured." />
-        ) : (
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            {summary.benchmarks.map(b => (
-              <div key={b.benchmark} className="bg-gray-50 rounded-lg p-4 border">
-                <h3 className="font-semibold text-gray-800">{b.benchmark}</h3>
-                <div className="mt-2 space-y-1 text-sm">
-                  <div className="flex justify-between"><span className="text-gray-500">Avg Score</span><span className="font-bold">{b.avg_score.toFixed(1)}</span></div>
-                  <div className="flex justify-between"><span className="text-gray-500">Best</span><span className="text-green-600">{b.best_score}</span></div>
-                  <div className="flex justify-between"><span className="text-gray-500">Worst</span><span className="text-red-600">{b.worst_score}</span></div>
-                  <div className="flex justify-between"><span className="text-gray-500">Runs</span><span>{b.runs}</span></div>
+      {/* Planned Pillars */}
+      <div>
+        <h2 className="text-sm font-semibold uppercase tracking-wider text-gray-500 mb-4">
+          Planned Evaluation Pillars
+        </h2>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          {plannedPillars.map((p, idx) => (
+            <Card key={idx}>
+              <div className="flex flex-col h-full justify-between">
+                <div>
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-gray-100 text-gray-700">
+                      {p.badge}
+                    </span>
+                    <span className="text-[10px] font-semibold text-blue-600 bg-blue-50 px-2 py-0.5 rounded-full border border-blue-200">
+                      {p.status}
+                    </span>
+                  </div>
+                  <h3 className="text-base font-bold text-gray-900 mb-1.5">{p.title}</h3>
+                  <p className="text-xs text-gray-500 leading-relaxed">{p.desc}</p>
                 </div>
               </div>
-            ))}
-          </div>
-        )}
-      </Card>
-
-      {/* Filters + Historical Runs */}
-      <Card>
-        <div className="flex flex-wrap items-center justify-between mb-4 gap-3">
-          <h2 className="text-lg font-bold">Historical Runs</h2>
-          <div className="flex flex-wrap gap-2">
-            <select
-              className="border rounded px-3 py-1.5 text-sm bg-white"
-              value={filters.agent || ''}
-              onChange={e => setFilters(f => ({ ...f, agent: e.target.value || undefined }))}
-            >
-              <option value="">All Agents</option>
-              {summary.agents.map(a => <option key={a.agent} value={a.agent}>{a.agent}</option>)}
-            </select>
-
-            <select
-              className="border rounded px-3 py-1.5 text-sm bg-white"
-              value={filters.benchmark || ''}
-              onChange={e => setFilters(f => ({ ...f, benchmark: e.target.value || undefined }))}
-            >
-              <option value="">All Benchmarks</option>
-              {summary.benchmarks.map(b => <option key={b.benchmark} value={b.benchmark}>{b.benchmark}</option>)}
-            </select>
-
-            <select
-              className="border rounded px-3 py-1.5 text-sm bg-white"
-              value={filters.status || ''}
-              onChange={e => setFilters(f => ({ ...f, status: (e.target.value || undefined) as EvalStatus | undefined }))}
-            >
-              <option value="">All Statuses</option>
-              <option value="passed">Passed</option>
-              <option value="failed">Failed</option>
-              <option value="running">Running</option>
-              <option value="pending">Pending</option>
-            </select>
-          </div>
+            </Card>
+          ))}
         </div>
-
-        <RunTable runs={filteredRuns} />
-      </Card>
-
-      {/* Failure Analysis */}
-      {summary.recent_runs.some(r => r.failure_reason) && (
-        <Card className="border-l-4 border-l-red-500">
-          <h2 className="text-lg font-bold mb-3 text-red-700">Failure Analysis</h2>
-          <div className="space-y-3">
-            {summary.recent_runs.filter(r => r.failure_reason).map(r => (
-              <div key={r.id} className="bg-red-50 p-3 rounded border border-red-100">
-                <div className="flex items-center space-x-3 mb-1">
-                  <StatusBadge status={r.status} />
-                  <span className="font-mono text-sm text-gray-700">{r.id.slice(0, 8)}</span>
-                  <span className="text-sm text-gray-500">{r.agent} / {r.benchmark}</span>
-                </div>
-                <p className="text-sm text-red-700">{r.failure_reason}</p>
-              </div>
-            ))}
-          </div>
-        </Card>
-      )}
+      </div>
     </div>
   );
 }

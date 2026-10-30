@@ -46,11 +46,6 @@ class ApiAdapter {
       ...((options.headers as Record<string, string>) || {}),
     };
 
-    // Temporary mock fallback for unmigrated endpoints while in mock mode (Wave 10.5 removes this)
-    if (process.env.NEXT_PUBLIC_USE_MOCK_API === "true" && (endpoint === "/developer/task" || endpoint === "/evaluations/summary")) {
-      return this._handleMock(endpoint, options) as Promise<T>;
-    }
-
     const baseUrl = getBaseUrl();
     const url = endpoint.startsWith("http") ? endpoint : `${baseUrl}${endpoint}`;
 
@@ -113,7 +108,8 @@ class ApiAdapter {
       }
 
       // Handle 204 No Content or empty responses cleanly
-      if (response.status === 204 || response.headers.get("content-length") === "0") {
+      const contentLength = response.headers?.get ? response.headers.get("content-length") : null;
+      if (response.status === 204 || contentLength === "0") {
         return null as unknown as T;
       }
 
@@ -156,43 +152,6 @@ class ApiAdapter {
 
   delete<T = unknown>(endpoint: string, options: RequestInit = {}): Promise<T> {
     return this.request<T>(endpoint, { ...options, method: "DELETE" });
-  }
-
-  // Temporary mock handler retained only for unmigrated endpoints (Wave 10.5 decommissions this completely)
-  private async _handleMock(endpoint: string, options: RequestInit): Promise<unknown> {
-    await new Promise((resolve) => setTimeout(resolve, 500));
-    if (endpoint === "/developer/task" && options.body) {
-      const body = JSON.parse(options.body as string);
-      return {
-        output_payload: {
-          status: "success",
-          artifacts: [],
-          result: {
-            summary: `Mock result for ${body.task_type}`,
-            plan: ["Inspect workspace", "Synthesize code", "Validate AST"],
-            files_changed: [],
-            diffs: {},
-            validation: {},
-            warnings: [],
-          },
-        },
-        trace_id: `trace-mock-${Date.now()}`,
-      };
-    }
-    if (endpoint === "/evaluations/summary") {
-      return {
-        total_runs: 0,
-        passed: 0,
-        failed: 0,
-        running: 0,
-        pending: 0,
-        metrics: [],
-        agents: [],
-        benchmarks: [],
-        recent_runs: [],
-      };
-    }
-    return { success: true, mocked: true };
   }
 }
 
