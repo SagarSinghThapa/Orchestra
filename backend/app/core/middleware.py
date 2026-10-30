@@ -9,6 +9,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.types import ASGIApp
 
 from app.core.context import get_request_id, reset_request_id, set_request_id
+from app.core.metrics import record_http_request, record_rate_limit_rejection
 from app.core.rate_limit import classify_route, limiter
 
 logger = logging.getLogger("orchestra.access")
@@ -59,6 +60,30 @@ class RequestIDMiddleware(BaseHTTPMiddleware):
             return response
         finally:
             reset_request_id(token)
+
+
+class MetricsMiddleware(BaseHTTPMiddleware):
+    """
+    Measures HTTP roundtrip request duration and increments bounded Prometheus counters.
+    Guarantees that telemetry failures never abort or mutate user requests.
+    """
+
+    async def dispatch(self, request: Request, call_next: Callable) -> Response:
+        start_time = time.perf_counter()
+        try:
+            response = await call_next(request)
+            duration_s = time.perf_counter() - start_time
+            route = getattr(request.state, "route_template", "unmatched")
+            record_http_request(request.method, route, response.status_code, duration_s)
+            if response.status_code == 429:
+                route_class = getattr(request.state, "route_class", "unknown")
+                record_rate_limit_rejection(route_class)
+            return response
+        except Exception:
+            duration_s = time.perf_counter() - start_time
+            route = getattr(request.state, "route_template", "unmatched")
+            record_http_request(request.method, route, 500, duration_s)
+            raise
 
 
 class StructuredLoggingMiddleware(BaseHTTPMiddleware):
