@@ -23,6 +23,7 @@ from app.core.csrf import CSRFMiddleware
 from app.core.context import get_request_id
 from app.core.logging import configure_logging
 from app.core.metrics import get_metrics_output
+from app.core.telemetry import configure_langsmith_tracing
 from app.core.middleware import (
     MetricsMiddleware,
     RateLimitMiddleware,
@@ -37,6 +38,7 @@ logger = logging.getLogger("orchestra.main")
 async def lifespan(app: FastAPI):
     # Application startup: configure logging & initialize Redis pool
     configure_logging()
+    configure_langsmith_tracing()
     await init_redis_pool()
     yield
     # Application shutdown: cleanly close Redis and dispose of DB connection pool

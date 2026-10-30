@@ -1,5 +1,6 @@
 import contextlib
 import logging
+import os
 import time
 from typing import Any, Dict, Generator, Optional
 
@@ -37,6 +38,35 @@ def sanitize_span_attributes(attributes: Optional[Dict[str, Any]]) -> Dict[str, 
             if isinstance(v, (str, int, float, bool)):
                 sanitized[k] = v
     return sanitized
+
+
+def configure_langsmith_tracing() -> bool:
+    """
+    Configures LangSmith environment flags with strict privacy masking.
+
+    When settings.langsmith_tracing is False (default):
+        Explicitly suppresses LangSmith/LangChain tracing in the environment.
+        Zero network connections, zero SaaS forwarders.
+
+    When settings.langsmith_tracing is True (opt-in):
+        Activates tracing flags while strictly enforcing input/output suppression
+        (LANGCHAIN_HIDE_INPUTS="true", LANGCHAIN_HIDE_OUTPUTS="true") to guarantee
+        that prompts, completions, documents, source code, and secrets are NEVER
+        transmitted to external servers.
+    """
+    if not settings.langsmith_tracing:
+        os.environ["LANGCHAIN_TRACING_V2"] = "false"
+        os.environ["LANGSMITH_TRACING"] = "false"
+        logger.info("LangSmith tracing is disabled by configuration (default)")
+        return False
+
+    os.environ["LANGCHAIN_TRACING_V2"] = "true"
+    os.environ["LANGSMITH_TRACING"] = "true"
+    # Strict privacy safeguard: never transmit prompts, code, or outputs to external SaaS
+    os.environ["LANGCHAIN_HIDE_INPUTS"] = "true"
+    os.environ["LANGCHAIN_HIDE_OUTPUTS"] = "true"
+    logger.info("LangSmith tracing enabled with strict input/output privacy suppression")
+    return True
 
 
 @contextlib.contextmanager

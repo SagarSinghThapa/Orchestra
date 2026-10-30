@@ -1,9 +1,11 @@
+import os
 import pytest
 
 from app.core.config import settings
 from app.core.context import reset_request_id, set_request_id
 from app.core.telemetry import (
     captured_spans,
+    configure_langsmith_tracing,
     sanitize_span_attributes,
     trace_span,
 )
@@ -77,3 +79,27 @@ def test_trace_span_when_enabled(monkeypatch):
     # Privacy verification
     assert "prompt" not in recorded["attributes"]
     assert "SECRET_PROMPT" not in str(recorded)
+
+
+def test_configure_langsmith_tracing_disabled_by_default(monkeypatch):
+    monkeypatch.setattr(settings, "langsmith_tracing", False)
+    # Ensure clean env state
+    monkeypatch.setenv("LANGCHAIN_TRACING_V2", "true")
+    monkeypatch.setenv("LANGSMITH_TRACING", "true")
+
+    res = configure_langsmith_tracing()
+    assert res is False
+    assert os.environ.get("LANGCHAIN_TRACING_V2") == "false"
+    assert os.environ.get("LANGSMITH_TRACING") == "false"
+
+
+def test_configure_langsmith_tracing_opt_in_with_privacy_masking(monkeypatch):
+    monkeypatch.setattr(settings, "langsmith_tracing", True)
+
+    res = configure_langsmith_tracing()
+    assert res is True
+    assert os.environ.get("LANGCHAIN_TRACING_V2") == "true"
+    assert os.environ.get("LANGSMITH_TRACING") == "true"
+    # Inviolable privacy safeguards: raw inputs and outputs are masked
+    assert os.environ.get("LANGCHAIN_HIDE_INPUTS") == "true"
+    assert os.environ.get("LANGCHAIN_HIDE_OUTPUTS") == "true"
