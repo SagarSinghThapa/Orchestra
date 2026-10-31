@@ -89,7 +89,16 @@ export default function CodingAssistantPage() {
         `/projects/${selectedProject.id}/developer`,
         payload
       );
-      setAppliedResponse(res);
+      if (
+        res.summary.toLowerCase().includes("aborted") ||
+        res.summary.toLowerCase().includes("concurrent")
+      ) {
+        setError(
+          "Workspace files were modified concurrently. Base hashes no longer match. Apply aborted."
+        );
+      } else {
+        setAppliedResponse(res);
+      }
       setProposal(null);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "Failed to apply code modifications";
@@ -120,7 +129,9 @@ export default function CodingAssistantPage() {
   }
 
   const hasInvalidAst = proposal?.proposed_patches.some(
-    (p) => p.validation_status.toLowerCase() !== "valid"
+    (p) =>
+      p.validation_status.toLowerCase() !== "valid" &&
+      !p.validation_status.toLowerCase().startsWith("skipped")
   );
 
   return (
@@ -261,7 +272,9 @@ export default function CodingAssistantPage() {
               {/* Proposed Patches */}
               <div className="space-y-4 pt-2">
                 {proposal.proposed_patches.map((patch, idx) => {
-                  const isValid = patch.validation_status.toLowerCase() === "valid";
+                  const isValid =
+                    patch.validation_status.toLowerCase() === "valid" ||
+                    patch.validation_status.toLowerCase().startsWith("skipped");
                   return (
                     <div key={idx} className="space-y-2">
                       <div className="flex items-center justify-between text-xs font-mono">

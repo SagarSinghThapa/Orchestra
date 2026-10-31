@@ -73,27 +73,21 @@ def bootstrap():
     session = SessionLocal()
 
     try:
-        # Seed deterministic test personas
+        # Seed deterministic test personas idempotently
         hashed_pwd = hash_password("TestPassword123!")
+        existing = session.query(User).filter(User.email.in_(["admin@orchestra.io", "member@orchestra.io", "viewer@orchestra.io"])).all()
+        existing_emails = {u.email for u in existing}
+        new_users = []
+        if "admin@orchestra.io" not in existing_emails:
+            new_users.append(User(email="admin@orchestra.io", password_hash=hashed_pwd, role=UserRole.ADMIN))
+        if "member@orchestra.io" not in existing_emails:
+            new_users.append(User(email="member@orchestra.io", password_hash=hashed_pwd, role=UserRole.MEMBER))
+        if "viewer@orchestra.io" not in existing_emails:
+            new_users.append(User(email="viewer@orchestra.io", password_hash=hashed_pwd, role=UserRole.VIEWER))
 
-        admin = User(
-            email="admin@orchestra.io",
-            password_hash=hashed_pwd,
-            role=UserRole.ADMIN,
-        )
-        member = User(
-            email="member@orchestra.io",
-            password_hash=hashed_pwd,
-            role=UserRole.MEMBER,
-        )
-        viewer = User(
-            email="viewer@orchestra.io",
-            password_hash=hashed_pwd,
-            role=UserRole.VIEWER,
-        )
-
-        session.add_all([admin, member, viewer])
-        session.commit()
+        if new_users:
+            session.add_all(new_users)
+            session.commit()
         print("Bootstrap test database SUCCESS: seeded admin, member, viewer personas.")
     finally:
         session.close()
