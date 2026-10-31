@@ -19,6 +19,9 @@ export function setAuthFailureHandler(handler: AuthFailureHandler | null) {
 }
 
 export function getBaseUrl(): string {
+  if (typeof window !== "undefined" && window.location.port === "3001") {
+    return "http://127.0.0.1:8001";
+  }
   const rawUrl = process.env.NEXT_PUBLIC_API_URL;
   if (rawUrl) {
     if (!rawUrl.startsWith("http://") && !rawUrl.startsWith("https://")) {

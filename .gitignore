@@ -25,6 +25,12 @@ env/
 .pytest_cache/
 .coverage
 htmlcov/
+test-results/
+playwright-report/
+*.db
+*.db-journal
+workspaces/
+node_modules/
 
 # OS
 .DS_Store
