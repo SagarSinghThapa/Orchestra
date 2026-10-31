@@ -487,18 +487,21 @@ class EvaluationService:
             if not project and user.role != UserRole.ADMIN.value:
                 raise HTTPException(status_code=404, detail="Project not found")
 
-        # Clear existing active baseline for matching signature
-        (
-            self.db.query(EvaluationRun)
-            .filter(
-                EvaluationRun.suite_id == run.suite_id,
-                EvaluationRun.dataset_id == run.dataset_id,
-                EvaluationRun.dataset_version == run.dataset_version,
-                EvaluationRun.execution_mode == run.execution_mode,
-                EvaluationRun.project_id == run.project_id,
-                EvaluationRun.is_baseline.is_(True),
-            )
-            .update({"is_baseline": False})
+        # Clear other active baselines for matching signature
+        filter_conditions = [
+            EvaluationRun.suite_id == run.suite_id,
+            EvaluationRun.dataset_id == run.dataset_id,
+            EvaluationRun.dataset_version == run.dataset_version,
+            EvaluationRun.execution_mode == run.execution_mode,
+            EvaluationRun.id != run_id,
+        ]
+        if run.project_id is None:
+            filter_conditions.append(EvaluationRun.project_id.is_(None))
+        else:
+            filter_conditions.append(EvaluationRun.project_id == run.project_id)
+
+        self.db.query(EvaluationRun).filter(*filter_conditions).update(
+            {"is_baseline": False}, synchronize_session="fetch"
         )
 
         run.is_baseline = True

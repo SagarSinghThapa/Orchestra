@@ -36,6 +36,7 @@ export function getBaseUrl(): string {
 }
 
 let refreshPromise: Promise<void> | null = null;
+let lastRefreshTime = 0;
 
 class ApiAdapter {
   async request<T = unknown>(
@@ -43,6 +44,7 @@ class ApiAdapter {
     options: RequestInit = {},
     isRetry = false
   ): Promise<T> {
+    const requestStartTime = Date.now();
     const isFormData = typeof FormData !== "undefined" && options.body instanceof FormData;
 
     const headers: Record<string, string> = {
@@ -63,6 +65,10 @@ class ApiAdapter {
 
       // Handle 401 Unauthorized with single-flight refresh queue
       if (response.status === 401 && !isRetry && !this._isAuthRoute(endpoint)) {
+        if (lastRefreshTime > requestStartTime) {
+          return this.request<T>(endpoint, options, true);
+        }
+
         if (!refreshPromise) {
           refreshPromise = (async () => {
             try {
@@ -78,6 +84,7 @@ class ApiAdapter {
                 if (onAuthFailure) onAuthFailure();
                 throw new ApiError(refreshResp.status, "Session expired. Please log in again.");
               }
+              lastRefreshTime = Date.now();
             } catch (err) {
               if (onAuthFailure) onAuthFailure();
               throw err;
@@ -177,3 +184,7 @@ class ApiAdapter {
 }
 
 export const api = new ApiAdapter();
+
+if (typeof window !== "undefined") {
+  (window as unknown as { api?: typeof api }).api = api;
+}

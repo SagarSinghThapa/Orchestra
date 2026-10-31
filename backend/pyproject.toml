@@ -39,6 +39,7 @@ dev = [
     "pytest>=9.0.0",
     "pytest-asyncio>=1.4.0",
     "anyio>=4.0.0",
+    "locust>=2.31.0",
 ]
 
 [tool.setuptools.packages.find]
@@ -49,3 +50,8 @@ include = ["app*"]
 pythonpath = ["."]
 testpaths = ["tests"]
 asyncio_mode = "strict"
+markers = [
+    "resilience: Fault injection and disaster recovery tests",
+    "load: Sustained throughput and concurrency race tests",
+    "e2e: End-to-end integration journeys",
+]
