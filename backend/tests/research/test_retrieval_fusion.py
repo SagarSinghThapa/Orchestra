@@ -1,3 +1,4 @@
+import uuid
 import pytest
 
 from app.research.chunking.base import DocumentChunk
@@ -12,7 +13,8 @@ from app.research.vectorstore.qdrant import QdrantVectorStore
 
 @pytest.fixture
 def in_memory_store():
-    return QdrantVectorStore(location=":memory:", collection_name="test_col_fusion")
+    col_name = f"test_col_fusion_{uuid.uuid4().hex[:8]}"
+    return QdrantVectorStore(location=":memory:", collection_name=col_name)
 
 
 @pytest.fixture

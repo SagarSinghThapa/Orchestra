@@ -95,10 +95,11 @@ class DeterministicTestLLMProvider(LLMProvider):
             })
 
         if schema_name == "IntentClassificationResult":
-            p_lower = prompt.lower()
-            if any(k in p_lower for k in ("research", "paper", "document", "transformer", "attention", "qubit", "paxos", "japanese", "rice", "coherence", "quantum")):
+            match = re.search(r"<USER_INPUT>(.*?)</USER_INPUT>", prompt, re.DOTALL)
+            user_text = match.group(1).strip().lower() if match else prompt.lower()
+            if any(k in user_text for k in ("research", "paper", "document", "transformer", "attention", "qubit", "paxos", "japanese", "rice", "coherence", "quantum")):
                 detected_intent = "research"
-            elif any(k in p_lower for k in ("code", "refactor", "ast", "lint", "developer", "function", "bug", "fix", "repository", "workspace", "symbol")):
+            elif any(k in user_text for k in ("code", "refactor", "ast", "lint", "developer", "function", "bug", "fix", "repository", "workspace", "symbol")):
                 detected_intent = "developer"
             else:
                 detected_intent = "direct_qa"

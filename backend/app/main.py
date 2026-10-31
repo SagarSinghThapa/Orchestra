@@ -153,11 +153,8 @@ async def readiness():
         try:
             from qdrant_client import AsyncQdrantClient
 
-            client = AsyncQdrantClient(
-                url=settings.qdrant_url,
-                api_key=settings.qdrant_api_key,
-                timeout=2.0,
-            )
+            qdrant_kwargs = {'location': ':memory:'} if settings.qdrant_url == ':memory:' else {'url': settings.qdrant_url, 'api_key': settings.qdrant_api_key}
+            client = AsyncQdrantClient(timeout=2.0, **qdrant_kwargs)
             await client.get_collections()
             await client.close()
             dependencies["qdrant"] = "healthy"
@@ -215,11 +212,8 @@ async def qdrant_health():
     try:
         from qdrant_client import AsyncQdrantClient
 
-        client = AsyncQdrantClient(
-            url=settings.qdrant_url,
-            api_key=settings.qdrant_api_key,
-            timeout=3.0,
-        )
+        qdrant_kwargs = {'location': ':memory:'} if settings.qdrant_url == ':memory:' else {'url': settings.qdrant_url, 'api_key': settings.qdrant_api_key}
+        client = AsyncQdrantClient(timeout=3.0, **qdrant_kwargs)
         await client.get_collections()
         await client.close()
         return {

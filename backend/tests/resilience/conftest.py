@@ -51,6 +51,10 @@ def test_engine():
     )
     with engine.connect() as conn:
         conn.exec_driver_sql("PRAGMA journal_mode=WAL;")
+    import app.database.connection as db_conn
+    import app.main as app_main
+    db_conn.engine = engine
+    app_main.engine = engine
     Base.metadata.create_all(bind=engine)
     yield engine
     Base.metadata.drop_all(bind=engine)

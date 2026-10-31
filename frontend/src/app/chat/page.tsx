@@ -45,8 +45,8 @@ export default function ChatPage() {
         const data = await api.get<SessionItem[]>(`/sessions/project/${selectedProject.id}`);
         if (active) {
           setSessions(data);
-          if (data.length > 0 && activeSessionId === null) {
-            setActiveSessionId(data[0].id);
+          if (data.length > 0) {
+            setActiveSessionId((prev) => (prev === null ? data[0].id : prev));
           }
         }
       } catch {
