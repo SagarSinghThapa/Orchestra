@@ -60,6 +60,7 @@ export default defineConfig({
         WORKSPACE_BASE_DIR: path.resolve(__dirname, '../test-results/workspaces').replace(/\\/g, '/'),
         LLM_PROVIDER: 'test',
         EMBEDDING_PROVIDER: 'test',
+        QDRANT_URL: ':memory:',
       },
     },
     {

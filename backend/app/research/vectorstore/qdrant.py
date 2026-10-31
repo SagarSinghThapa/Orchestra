@@ -8,6 +8,17 @@ from app.research.chunking.base import DocumentChunk
 from app.research.exceptions import ConfigurationError, VectorStoreError
 
 
+_shared_memory_client: Optional[AsyncQdrantClient] = None
+
+
+async def reset_shared_memory_client() -> None:
+    """Closes and resets the shared in-memory Qdrant client."""
+    global _shared_memory_client
+    if _shared_memory_client is not None:
+        await _shared_memory_client.close()
+        _shared_memory_client = None
+
+
 class QdrantVectorStore:
     """
     Qdrant vector database storage manager.
@@ -35,16 +46,20 @@ class QdrantVectorStore:
         self.collection_name = collection_name or settings.qdrant_collection_name
 
     async def _get_client(self) -> AsyncQdrantClient:
+        global _shared_memory_client
         if self._client is None:
-            if self._location == ":memory:":
-                self._client = AsyncQdrantClient(location=":memory:")
+            if self._location == ":memory:" or self.url == ":memory:":
+                if _shared_memory_client is None:
+                    _shared_memory_client = AsyncQdrantClient(location=":memory:")
+                self._client = _shared_memory_client
             else:
                 self._client = AsyncQdrantClient(url=self.url, api_key=self.api_key)
         return self._client
 
     async def close(self) -> None:
         """Close connection to Qdrant if open."""
-        if self._client is not None:
+        global _shared_memory_client
+        if self._client is not None and self._client is not _shared_memory_client:
             await self._client.close()
             self._client = None
 

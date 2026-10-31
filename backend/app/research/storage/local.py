@@ -1,6 +1,8 @@
 import logging
 from pathlib import Path
+from typing import Optional
 
+from app.core.config import settings
 from app.research.storage.base import StorageBackend
 
 logger = logging.getLogger(__name__)
@@ -12,8 +14,9 @@ class LocalStorageBackend(StorageBackend):
     and idempotent deletion semantics.
     """
 
-    def __init__(self, root_dir: str | Path) -> None:
-        self.root_dir = Path(root_dir).resolve()
+    def __init__(self, root_dir: Optional[str | Path] = None) -> None:
+        actual_root = root_dir if root_dir is not None else settings.storage_local_root
+        self.root_dir = Path(actual_root).resolve()
         self.root_dir.mkdir(parents=True, exist_ok=True)
 
     def _resolve_key(self, storage_key: str) -> Path:

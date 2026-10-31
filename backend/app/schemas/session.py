@@ -7,6 +7,7 @@ from pydantic import BaseModel, ConfigDict
 class SessionType(str, Enum):
     research = "research"
     coding = "coding"
+    orchestrator = "orchestrator"
 
 
 class SessionCreate(BaseModel):

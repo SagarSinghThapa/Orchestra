@@ -36,6 +36,39 @@ def bootstrap():
     Base.metadata.drop_all(bind=engine)
     Base.metadata.create_all(bind=engine)
 
+    # LangGraph checkpoint tables (managed outside Base.metadata)
+    with engine.begin() as conn:
+        conn.exec_driver_sql("""
+        CREATE TABLE IF NOT EXISTS checkpoints (
+            thread_id VARCHAR(255) NOT NULL,
+            checkpoint_ns VARCHAR(255) NOT NULL DEFAULT '',
+            checkpoint_id VARCHAR(255) NOT NULL,
+            parent_checkpoint_id VARCHAR(255),
+            type VARCHAR(100),
+            checkpoint TEXT NOT NULL,
+            metadata TEXT NOT NULL,
+            created_at TIMESTAMP NOT NULL,
+            PRIMARY KEY (thread_id, checkpoint_ns, checkpoint_id)
+        );
+        """)
+        conn.exec_driver_sql("CREATE INDEX IF NOT EXISTS ix_checkpoints_thread_id ON checkpoints (thread_id);")
+        conn.exec_driver_sql("CREATE INDEX IF NOT EXISTS ix_checkpoints_created_at ON checkpoints (created_at);")
+
+        conn.exec_driver_sql("""
+        CREATE TABLE IF NOT EXISTS checkpoint_writes (
+            thread_id VARCHAR(255) NOT NULL,
+            checkpoint_ns VARCHAR(255) NOT NULL DEFAULT '',
+            checkpoint_id VARCHAR(255) NOT NULL,
+            task_id VARCHAR(255) NOT NULL,
+            idx INTEGER NOT NULL,
+            channel VARCHAR(255) NOT NULL,
+            type VARCHAR(100),
+            value TEXT NOT NULL,
+            PRIMARY KEY (thread_id, checkpoint_ns, checkpoint_id, task_id, idx)
+        );
+        """)
+        conn.exec_driver_sql("CREATE INDEX IF NOT EXISTS ix_checkpoint_writes_thread_id ON checkpoint_writes (thread_id);")
+
     SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
     session = SessionLocal()
 

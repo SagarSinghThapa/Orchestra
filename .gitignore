@@ -31,6 +31,8 @@ playwright-report/
 *.db-journal
 workspaces/
 node_modules/
+data/
+backend/data/
 
 # OS
 .DS_Store

@@ -94,6 +94,20 @@ class DeterministicTestLLMProvider(LLMProvider):
                 "decisions_made": ["Use incremental summarization with watermark monotonicity"],
             })
 
+        if schema_name == "IntentClassificationResult":
+            p_lower = prompt.lower()
+            if any(k in p_lower for k in ("research", "paper", "document", "transformer", "attention", "qubit", "paxos", "japanese", "rice", "coherence", "quantum")):
+                detected_intent = "research"
+            elif any(k in p_lower for k in ("code", "refactor", "ast", "lint", "developer", "function", "bug", "fix", "repository", "workspace", "symbol")):
+                detected_intent = "developer"
+            else:
+                detected_intent = "direct_qa"
+            return schema.model_validate({
+                "intent": detected_intent,
+                "confidence": 0.95,
+                "rationale": f"Deterministic test classification: {detected_intent}",
+            })
+
         # Fallback generic model instantiation with empty dict or dummy fields
         try:
             return schema.model_validate({})
@@ -121,10 +135,14 @@ class DeterministicTestLLMProvider(LLMProvider):
         return schema.model_validate(data)
 
     def _generate_draft_answer(self, prompt: str, schema: Type[T]) -> T:
-        if self.mode == "insufficient_evidence":
+        if (
+            self.mode == "insufficient_evidence"
+            or "japanese rice" in prompt.lower()
+            or "trading volumes" in prompt.lower()
+        ):
             return schema.model_validate({
                 "claims": [],
-                "summary_notes": "The indexed sources do not contain sufficient evidence.",
+                "summary_notes": "Available indexed documents lacked sufficient verified evidence to fully substantiate all aspects of this inquiry.",
                 "has_sufficient_evidence": False,
             })
 

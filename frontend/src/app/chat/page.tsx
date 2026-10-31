@@ -22,6 +22,7 @@ export default function ChatPage() {
   const [memoryModalOpen, setMemoryModalOpen] = useState<boolean>(false);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const skipFetchSessionIdRef = useRef<number | null>(null);
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -44,6 +45,9 @@ export default function ChatPage() {
         const data = await api.get<SessionItem[]>(`/sessions/project/${selectedProject.id}`);
         if (active) {
           setSessions(data);
+          if (data.length > 0 && activeSessionId === null) {
+            setActiveSessionId(data[0].id);
+          }
         }
       } catch {
         if (active) {
@@ -66,6 +70,10 @@ export default function ChatPage() {
   // Load message history when active session changes
   useEffect(() => {
     if (!activeSessionId) {
+      return;
+    }
+    if (skipFetchSessionIdRef.current === activeSessionId) {
+      skipFetchSessionIdRef.current = null;
       return;
     }
 
@@ -103,10 +111,12 @@ export default function ChatPage() {
   }, [activeSessionId]);
 
   const handleSelectSession = (id: number) => {
+    skipFetchSessionIdRef.current = null;
     setActiveSessionId(id);
   };
 
   const handleNewChat = () => {
+    skipFetchSessionIdRef.current = null;
     setActiveSessionId(null);
     setMessages([]);
     setErrorBanner(null);
@@ -146,6 +156,7 @@ export default function ChatPage() {
 
       // If new session created, adopt ID and add to session list
       if (!activeSessionId || activeSessionId !== response.session_id) {
+        skipFetchSessionIdRef.current = response.session_id;
         setActiveSessionId(response.session_id);
         const newSessionItem: SessionItem = {
           id: response.session_id,

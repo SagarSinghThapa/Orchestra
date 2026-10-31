@@ -1,0 +1,6 @@
+Distributed Consensus Protocols:
+Raft is a consensus algorithm designed to be easy to understand.
+It is equivalent to Paxos in fault-tolerance and performance.
+Key components include leader election, log replication, and safety guarantees.
+Nodes transition between leader, follower, and candidate states.
+
