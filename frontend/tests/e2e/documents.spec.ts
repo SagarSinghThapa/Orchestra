@@ -108,7 +108,7 @@ test.describe('Knowledge Ingestion & Document Pipeline E2E', () => {
     await page.goto('/documents');
     await expect(page.getByRole('heading', { name: 'Knowledge Ingestion' })).toBeVisible();
 
-    const badFilePath = path.resolve(__dirname, '../../test-results/exploit.exe');
+    const badFilePath = path.resolve(__dirname, '../../../test-results/exploit.exe');
     fs.writeFileSync(badFilePath, 'MZ_dummy_binary_payload');
 
     try {
@@ -128,7 +128,7 @@ test.describe('Knowledge Ingestion & Document Pipeline E2E', () => {
     await page.goto('/documents');
     await expect(page.getByRole('heading', { name: 'Knowledge Ingestion' })).toBeVisible();
 
-    const oversizedPath = path.resolve(__dirname, '../../test-results/oversized.txt');
+    const oversizedPath = path.resolve(__dirname, '../../../test-results/oversized.txt');
     // Create 10.5MB file
     const buffer = Buffer.alloc(10.5 * 1024 * 1024, 'a');
     fs.writeFileSync(oversizedPath, buffer);

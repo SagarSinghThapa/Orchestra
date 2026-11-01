@@ -1,6 +1,7 @@
 import { test, expect } from '@playwright/test';
 import { loginAs } from './fixtures/auth.fixture';
 import path from 'path';
+import fs from 'fs';
 
 test.describe('Grounded Research & Citation Verification E2E', () => {
   let projectId: number;
@@ -33,7 +34,7 @@ test.describe('Grounded Research & Citation Verification E2E', () => {
 
     // Upload research fixture document to project via API
     const mdPath = path.resolve(__dirname, 'fixtures/documents/sample_research.md');
-    const fileBuffer = require('fs').readFileSync(mdPath);
+    const fileBuffer = fs.readFileSync(mdPath);
 
     const formData = new FormData();
     const blob = new Blob([fileBuffer], { type: 'text/markdown' });

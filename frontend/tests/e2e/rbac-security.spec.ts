@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { loginAs, TEST_USERS } from './fixtures/auth.fixture';
+import { loginAs } from './fixtures/auth.fixture';
 
 test.describe('RBAC Authorization, Prompt Injection & XSS Sanitization E2E', () => {
   let projectId: number;

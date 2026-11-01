@@ -56,7 +56,9 @@ test.describe('Concurrency & Single-Flight Token Refresh E2E', () => {
     // All 5 concurrent requests recovered cleanly and succeeded with user payload
     for (const res of results) {
       expect(res.ok).toBe(true);
-      expect((res.data as { email?: string })?.email).toBe('member@orchestra.io');
+      if ('data' in res) {
+        expect((res.data as { email?: string })?.email).toBe('member@orchestra.io');
+      }
     }
   });
 });

@@ -34,7 +34,7 @@ test.describe('Developer Intelligence Preview-Apply & Hash Guarding E2E', () => 
     }, projectId);
 
     // Setup isolated project workspace with sample repo fixtures
-    workspaceDir = path.resolve(__dirname, `../../test-results/workspaces/project_${projectId}`);
+    workspaceDir = path.resolve(__dirname, `../../../test-results/workspaces/project_${projectId}`);
     fs.mkdirSync(workspaceDir, { recursive: true });
 
     const fixtureDir = path.resolve(__dirname, 'fixtures/workspaces/sample_repo');
