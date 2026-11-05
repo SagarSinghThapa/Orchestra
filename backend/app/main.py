@@ -39,6 +39,8 @@ async def lifespan(app: FastAPI):
     # Application startup: configure logging & initialize Redis pool
     configure_logging()
     configure_langsmith_tracing()
+    if settings.environment == "production":
+        settings.validate_runtime_requirements()
     await init_redis_pool()
     yield
     # Application shutdown: cleanly close Redis and dispose of DB connection pool

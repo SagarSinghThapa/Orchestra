@@ -184,6 +184,48 @@ class Settings(BaseSettings):
                         "LLM_BASE_URL must begin with 'http://' or 'https://' in production"
                     )
 
+            # Database Backend Guard (strict rejection of SQLite)
+            db_url = (self.database_url or "").lower()
+            if "sqlite" in db_url:
+                raise RuntimeError(
+                    "DATABASE_URL cannot use SQLite in production. PostgreSQL is required."
+                )
+            if not (db_url.startswith("postgresql://") or db_url.startswith("postgresql+psycopg://")):
+                raise RuntimeError(
+                    "DATABASE_URL must be a valid PostgreSQL connection URL in production."
+                )
+
+            # Rate Limiting Backend Guard
+            if not self.rate_limit_enabled:
+                raise RuntimeError("RATE_LIMIT_ENABLED must be True in production.")
+            if self.rate_limit_backend != "redis":
+                raise RuntimeError("RATE_LIMIT_BACKEND must be 'redis' in production.")
+
+            # Qdrant Vector Store Guard
+            q_url = (self.qdrant_url or "").strip().lower()
+            if not q_url or q_url == ":memory:":
+                raise RuntimeError("QDRANT_URL cannot be empty or ':memory:' in production.")
+            if not (q_url.startswith("http://") or q_url.startswith("https://")):
+                raise RuntimeError("QDRANT_URL must be a valid HTTP or HTTPS URL in production.")
+
+            # JWT Secret Entropy & Default Rejection Guard
+            weak_secrets = {
+                "secret",
+                "changeme",
+                "your_jwt_secret_here",
+                "your-jwt-secret-here",
+                "test-jwt-secret-key-for-testing-only-12345",
+            }
+            if len(self.jwt_secret or "") < 32:
+                raise RuntimeError("JWT_SECRET must be at least 32 characters long in production.")
+            if (self.jwt_secret or "").strip() in weak_secrets or "default" in (self.jwt_secret or "").lower():
+                raise RuntimeError("JWT_SECRET cannot use a known default or insecure value in production.")
+
+            # CORS Security Guard
+            for origin in self.cors_allowed_origins:
+                if origin.strip() == "*":
+                    raise RuntimeError("cors_allowed_origins cannot contain wildcard '*' in production.")
+
 
 
 settings = Settings()
