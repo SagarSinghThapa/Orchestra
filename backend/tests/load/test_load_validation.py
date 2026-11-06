@@ -1,5 +1,10 @@
 import pytest
-from backend.tests.load.run_load import parse_duration_seconds, validate_load_parameters
+
+try:
+    from tests.load.run_load import parse_duration_seconds, validate_load_parameters
+except ImportError:
+    from backend.tests.load.run_load import parse_duration_seconds, validate_load_parameters
+
 
 
 def test_parse_duration_seconds():

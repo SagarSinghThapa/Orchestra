@@ -29,7 +29,9 @@ test-results/
 playwright-report/
 *.db
 *.db-journal
-workspaces/
+/workspaces/
+backend/workspaces/
+!frontend/tests/e2e/fixtures/workspaces/
 node_modules/
 data/
 backend/data/

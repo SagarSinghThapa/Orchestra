@@ -38,8 +38,31 @@ test.describe('Developer Intelligence Preview-Apply & Hash Guarding E2E', () => 
     fs.mkdirSync(workspaceDir, { recursive: true });
 
     const fixtureDir = path.resolve(__dirname, 'fixtures/workspaces/sample_repo');
-    fs.copyFileSync(path.join(fixtureDir, 'config.json'), path.join(workspaceDir, 'config.json'));
-    fs.copyFileSync(path.join(fixtureDir, 'fibonacci.py'), path.join(workspaceDir, 'fibonacci.py'));
+    if (fs.existsSync(path.join(fixtureDir, 'config.json')) && fs.existsSync(path.join(fixtureDir, 'fibonacci.py'))) {
+      fs.copyFileSync(path.join(fixtureDir, 'config.json'), path.join(workspaceDir, 'config.json'));
+      fs.copyFileSync(path.join(fixtureDir, 'fibonacci.py'), path.join(workspaceDir, 'fibonacci.py'));
+    } else {
+      fs.writeFileSync(
+        path.join(workspaceDir, 'config.json'),
+        JSON.stringify(
+          {
+            project_name: 'Orchestra Test Workspace',
+            version: '1.0.0',
+            debug: true,
+            settings: {
+              log_level: 'INFO',
+              timeout: 30,
+            },
+          },
+          null,
+          2
+        ) + '\n'
+      );
+      fs.writeFileSync(
+        path.join(workspaceDir, 'fibonacci.py'),
+        'def fibonacci(n: int) -> int:\n    """Calculate the nth Fibonacci number."""\n    if n <= 0:\n        return 0\n    elif n == 1:\n        return 1\n    a, b = 0, 1\n    for _ in range(2, n + 1):\n        a, b = b, a + b\n    return b\n'
+      );
+    }
   });
 
   test('generates diff preview for config.json with non-python AST skip badge and unchanged disk file', async ({

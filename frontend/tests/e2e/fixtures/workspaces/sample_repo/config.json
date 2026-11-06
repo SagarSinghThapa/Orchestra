@@ -1,0 +1,10 @@
+{
+  "project_name": "Orchestra Test Workspace",
+  "version": "1.0.0",
+  "debug": true,
+  "settings": {
+    "log_level": "INFO",
+    "timeout": 30
+  }
+}
+
