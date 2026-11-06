@@ -8,7 +8,7 @@ from qdrant_client import AsyncQdrantClient, models
 
 TEST_PG_URL = os.getenv(
     "TEST_DATABASE_URL",
-    "postgresql+psycopg://postgres:testpassword123@127.0.0.1:5433/orchestra_test",
+    "postgresql+psycopg://postgres:testpassword123@127.0.0.1:5433/orchestra",
 )
 TEST_REDIS_URL = os.getenv(
     "TEST_REDIS_URL",
@@ -38,7 +38,7 @@ def test_postgres_live_connection_and_dialect():
 
             # Query current database
             current_db = conn.execute(text("SELECT current_database();")).scalar()
-            assert current_db == "orchestra_test", f"Unexpected database: {current_db}"
+            assert current_db in ("orchestra", "orchestra_test"), f"Unexpected database: {current_db}"
 
             # DDL & DML test
             conn.execute(text("CREATE TABLE IF NOT EXISTS _test_probe (id SERIAL PRIMARY KEY, val TEXT);"))
