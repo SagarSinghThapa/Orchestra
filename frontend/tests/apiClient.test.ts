@@ -225,5 +225,134 @@ describe("ApiClient & ApiAdapter Security & Transport", () => {
       expect(apiErr.message).toBe("Too many requests. Please wait a moment and try again.");
     }
   });
+
+  describe("Same-Origin API Routing & Base URL Contract", () => {
+    beforeEach(() => {
+      vi.unstubAllEnvs();
+    });
+
+    afterEach(() => {
+      vi.unstubAllEnvs();
+    });
+
+    it("respects explicit absolute development API base URL", async () => {
+      vi.stubEnv("NEXT_PUBLIC_API_URL", "http://127.0.0.1:8001");
+      const mockFetch = vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({ id: 1, email: "user@example.com" }),
+      });
+      global.fetch = mockFetch;
+
+      await api.get("/auth/me");
+
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+      const [url, options] = mockFetch.mock.calls[0];
+      expect(url).toBe("http://127.0.0.1:8001/auth/me");
+      expect(options.credentials).toBe("include");
+    });
+
+    it("generates relative same-origin URLs in production mode when NEXT_PUBLIC_API_URL is empty", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("NEXT_PUBLIC_API_URL", "");
+      const mockFetch = vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({ id: 1, email: "user@example.com" }),
+      });
+      global.fetch = mockFetch;
+
+      await api.get("/auth/me");
+
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+      const [url, options] = mockFetch.mock.calls[0];
+      expect(url).toBe("/auth/me");
+      expect(options.credentials).toBe("include");
+    });
+
+    it("routes authentication endpoints through same origin without hardcoding hostname", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("NEXT_PUBLIC_API_URL", "");
+      const mockFetch = vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({ message: "authenticated" }),
+      });
+      global.fetch = mockFetch;
+
+      await api.post("/auth/login", { email: "test@example.com", password: "Password123!" });
+      await api.post("/auth/register", { email: "new@example.com", password: "Password123!" });
+      await api.post("/auth/logout");
+
+      expect(mockFetch).toHaveBeenCalledTimes(3);
+      expect(mockFetch.mock.calls[0][0]).toBe("/auth/login");
+      expect(mockFetch.mock.calls[1][0]).toBe("/auth/register");
+      expect(mockFetch.mock.calls[2][0]).toBe("/auth/logout");
+      // Verify credentials & CSRF header preserved
+      for (const call of mockFetch.mock.calls) {
+        expect(call[1].credentials).toBe("include");
+        expect(call[1].headers["X-Orchestra-Request"]).toBe("true");
+      }
+    });
+
+    it("routes project, document, chat, developer, and evaluation calls through same-origin relative paths", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("NEXT_PUBLIC_API_URL", "");
+      const mockFetch = vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({ success: true }),
+      });
+      global.fetch = mockFetch;
+
+      await api.get("/projects");
+      await api.get("/projects/10/documents");
+      await api.post("/projects/10/orchestrate", { query: "Research inquiry" });
+      await api.post("/projects/10/developer", { query: "Code modification" });
+      await api.get("/evaluations/benchmarks");
+
+      expect(mockFetch).toHaveBeenCalledTimes(5);
+      expect(mockFetch.mock.calls[0][0]).toBe("/projects");
+      expect(mockFetch.mock.calls[1][0]).toBe("/projects/10/documents");
+      expect(mockFetch.mock.calls[2][0]).toBe("/projects/10/orchestrate");
+      expect(mockFetch.mock.calls[3][0]).toBe("/projects/10/developer");
+      expect(mockFetch.mock.calls[4][0]).toBe("/evaluations/benchmarks");
+    });
+
+    it("executes single-flight token refresh against relative same-origin /auth/refresh", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("NEXT_PUBLIC_API_URL", "");
+
+      let refreshUrlCalled: string | null = null;
+      const mockFetch = vi.fn().mockImplementation(async (url: string) => {
+        if (url === "/auth/refresh") {
+          refreshUrlCalled = url;
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({ message: "refreshed" }),
+          };
+        }
+        if (!refreshUrlCalled) {
+          return {
+            ok: false,
+            status: 401,
+            json: async () => ({ detail: "Token expired" }),
+          };
+        }
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ data: "success" }),
+        };
+      });
+      global.fetch = mockFetch;
+
+      const result = await api.get("/projects");
+
+      expect(refreshUrlCalled).toBe("/auth/refresh");
+      expect(result).toEqual({ data: "success" });
+    });
+  });
 });
 

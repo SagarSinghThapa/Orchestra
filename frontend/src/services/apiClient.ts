@@ -19,19 +19,33 @@ export function setAuthFailureHandler(handler: AuthFailureHandler | null) {
 }
 
 export function getBaseUrl(): string {
+  // Playwright E2E testing environment override:
   if (typeof window !== "undefined" && window.location.port === "3001") {
     return "http://127.0.0.1:8001";
   }
+
   const rawUrl = process.env.NEXT_PUBLIC_API_URL;
-  if (rawUrl) {
-    if (!rawUrl.startsWith("http://") && !rawUrl.startsWith("https://")) {
-      throw new Error("Invalid NEXT_PUBLIC_API_URL: must start with http:// or https://");
+
+  // If explicitly configured in environment:
+  if (rawUrl !== undefined && rawUrl !== null) {
+    const trimmed = rawUrl.trim();
+    if (trimmed === "" || trimmed === "/" || trimmed.toLowerCase() === "same-origin") {
+      return "";
     }
-    return rawUrl.replace(/\/+$/, "");
+    if (!trimmed.startsWith("http://") && !trimmed.startsWith("https://")) {
+      throw new Error(
+        "Invalid NEXT_PUBLIC_API_URL: must start with http:// or https://, or be empty for same-origin"
+      );
+    }
+    return trimmed.replace(/\/+$/, "");
   }
+
+  // Deployed production default: same-origin relative URLs via reverse proxy
   if (process.env.NODE_ENV === "production") {
-    throw new Error("NEXT_PUBLIC_API_URL must be defined in production environment");
+    return "";
   }
+
+  // Standalone local development default (without reverse proxy)
   return "http://localhost:8000";
 }
 
@@ -54,7 +68,12 @@ class ApiAdapter {
     };
 
     const baseUrl = getBaseUrl();
-    const url = endpoint.startsWith("http") ? endpoint : `${baseUrl}${endpoint}`;
+    const normalizedEndpoint = endpoint.startsWith("/") ? endpoint : `/${endpoint}`;
+    const url = endpoint.startsWith("http")
+      ? endpoint
+      : baseUrl
+        ? `${baseUrl}${normalizedEndpoint}`
+        : normalizedEndpoint;
 
     try {
       const response = await fetch(url, {
@@ -72,7 +91,8 @@ class ApiAdapter {
         if (!refreshPromise) {
           refreshPromise = (async () => {
             try {
-              const refreshResp = await fetch(`${baseUrl}/auth/refresh`, {
+              const refreshUrl = baseUrl ? `${baseUrl}/auth/refresh` : "/auth/refresh";
+              const refreshResp = await fetch(refreshUrl, {
                 method: "POST",
                 credentials: "include",
                 headers: {

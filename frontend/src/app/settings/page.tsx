@@ -10,9 +10,10 @@ export default function SettingsPage() {
   const { user } = useAuth();
   const { selectedProject } = useProject();
 
-  let apiUrl = "http://localhost:8000";
+  let apiUrl = "Same-Origin (Reverse Proxy)";
   try {
-    apiUrl = getBaseUrl();
+    const base = getBaseUrl();
+    apiUrl = base ? base : "Same-Origin (Reverse Proxy)";
   } catch {
     // default
   }
