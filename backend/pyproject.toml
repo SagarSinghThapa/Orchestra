@@ -54,4 +54,5 @@ markers = [
     "resilience: Fault injection and disaster recovery tests",
     "load: Sustained throughput and concurrency race tests",
     "e2e: End-to-end integration journeys",
+    "integration: Real multi-container integration tests",
 ]

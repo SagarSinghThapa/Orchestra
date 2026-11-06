@@ -1,16 +1,9 @@
 services:
   postgres:
-    environment:
-      POSTGRES_DB: orchestra
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: testpassword123
     ports:
       - "127.0.0.1:5433:5432"
 
   redis:
-    command: ["redis-server", "--requirepass", "testpassword123"]
-    environment:
-      REDISCLI_AUTH: testpassword123
     ports:
       - "127.0.0.1:6380:6379"
 
@@ -18,11 +11,23 @@ services:
     ports:
       - "127.0.0.1:6334:6333"
 
-  migration:
+  mock-ai:
+    image: python:3.13-slim
+    container_name: orchestra-mock-ai
+    restart: unless-stopped
+    volumes:
+      - ./scripts:/scripts:ro
+    command: ["python", "/scripts/mock_ai_server.py", "8000"]
+    networks:
+      - orchestra_data
+
+  backend:
     environment:
-      DATABASE_URL: "postgresql+psycopg://postgres:testpassword123@postgres:5432/orchestra"
-      ENVIRONMENT: "test"
-      JWT_SECRET: "test-jwt-secret-key-for-testing-only-12345"
+      EMBEDDING_BASE_URL: "http://mock-ai:8000/v1"
+      LLM_BASE_URL: "http://mock-ai:8000/v1"
+    depends_on:
+      mock-ai:
+        condition: service_started
 
 networks:
   orchestra_data:

@@ -8,15 +8,24 @@ from qdrant_client import AsyncQdrantClient, models
 
 TEST_PG_URL = os.getenv(
     "TEST_DATABASE_URL",
-    "postgresql+psycopg://postgres:testpassword123@127.0.0.1:5433/orchestra",
+    os.getenv(
+        "DATABASE_URL",
+        "postgresql+psycopg://postgres:replace_with_strong_postgres_password_here@127.0.0.1:5433/orchestra",
+    ),
 )
 TEST_REDIS_URL = os.getenv(
     "TEST_REDIS_URL",
-    "redis://:testpassword123@127.0.0.1:6380/0",
+    os.getenv(
+        "REDIS_URL",
+        "redis://:replace_with_strong_redis_password_here@127.0.0.1:6380/0",
+    ),
 )
 TEST_QDRANT_URL = os.getenv(
     "TEST_QDRANT_URL",
-    "http://127.0.0.1:6334",
+    os.getenv(
+        "QDRANT_URL",
+        "http://127.0.0.1:6334",
+    ),
 )
 
 
