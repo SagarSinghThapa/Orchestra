@@ -1,0 +1,76 @@
+services:
+  postgres:
+    image: postgres:16
+    container_name: orchestra-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-orchestra}
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env}
+    volumes:
+      - orchestra_pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - orchestra_data
+
+  redis:
+    image: redis:7-alpine
+    container_name: orchestra-redis
+    restart: unless-stopped
+    command: ["redis-server", "--requirepass", "${REDIS_PASSWORD:?REDIS_PASSWORD must be set in .env}"]
+    environment:
+      REDISCLI_AUTH: ${REDIS_PASSWORD}
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+    networks:
+      - orchestra_data
+
+  qdrant:
+    image: qdrant/qdrant:v1.12.5
+    container_name: orchestra-qdrant
+    restart: unless-stopped
+    volumes:
+      - orchestra_qdrant_data:/qdrant/storage
+    healthcheck:
+      test: ["CMD-SHELL", "bash -c 'exec 3<>/dev/tcp/127.0.0.1/6333 && echo -e \"GET /readyz HTTP/1.1\\r\\nHost: localhost\\r\\nConnection: close\\r\\n\\r\\n\" >&3 && cat <&3 | grep -q \"200 OK\"'"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+    networks:
+      - orchestra_data
+
+  migration:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    container_name: orchestra-migration
+    command: ["alembic", "upgrade", "head"]
+    restart: "no"
+    environment:
+      DATABASE_URL: "postgresql+psycopg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-orchestra}"
+      ENVIRONMENT: "production"
+      JWT_SECRET: ${JWT_SECRET:-temporary-bootstrap-jwt-secret-min-32-chars!}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - orchestra_data
+
+networks:
+  orchestra_data:
+    internal: true
+
+volumes:
+  orchestra_pg_data:
+  orchestra_qdrant_data:
+

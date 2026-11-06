@@ -1,0 +1,30 @@
+services:
+  postgres:
+    environment:
+      POSTGRES_DB: orchestra_test
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: testpassword123
+    ports:
+      - "127.0.0.1:5433:5432"
+
+  redis:
+    command: ["redis-server", "--requirepass", "testpassword123"]
+    environment:
+      REDISCLI_AUTH: testpassword123
+    ports:
+      - "127.0.0.1:6380:6379"
+
+  qdrant:
+    ports:
+      - "127.0.0.1:6334:6333"
+
+  migration:
+    environment:
+      DATABASE_URL: "postgresql+psycopg://postgres:testpassword123@postgres:5432/orchestra_test"
+      ENVIRONMENT: "test"
+      JWT_SECRET: "test-jwt-secret-key-for-testing-only-12345"
+
+networks:
+  orchestra_data:
+    internal: false
+
