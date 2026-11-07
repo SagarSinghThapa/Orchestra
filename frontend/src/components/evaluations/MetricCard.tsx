@@ -21,7 +21,6 @@ export function MetricCard({
   const formatValue = (val: number | null | undefined): string => {
     if (val === null || val === undefined) return "—";
     if (unit === "%") {
-      // In backend, percentages like faithfulness or precision may be 0.0-1.0 or 0-100
       const pct = val <= 1.0 && val >= 0.0 ? val * 100 : val;
       return `${pct.toFixed(1)}%`;
     }
@@ -58,9 +57,6 @@ export function MetricCard({
       formattedDiff = `${diff > 0 ? "+" : ""}${diff.toFixed(2)}`;
     }
 
-    // Directional semantics:
-    // If higher_is_better: diff > 0 is good (green), diff < 0 is bad (red)
-    // If lower_is_better: diff < 0 is good (green), diff > 0 is bad (red)
     const isGood = direction === "higher_is_better" ? diff > 0 : diff < 0;
 
     return {
@@ -73,41 +69,41 @@ export function MetricCard({
   const delta = calculateDelta();
 
   return (
-    <div className="bg-white rounded-xl shadow-xs border border-gray-200 p-5 flex flex-col justify-between">
+    <div className="bg-[#20212B] rounded-xl shadow-xl border border-white/[0.08] p-5 flex flex-col justify-between">
       <div>
         <div className="flex items-center justify-between mb-1">
-          <span className="text-xs font-semibold uppercase tracking-wider text-gray-500">
+          <span className="text-[11px] font-semibold uppercase tracking-wider text-[#929292]">
             {label}
           </span>
-          <span className="text-[10px] text-gray-400 font-mono">
+          <span className="text-[10px] text-[#A4A6B8] font-mono">
             {direction === "higher_is_better" ? "Target: Higher" : "Target: Lower"}
           </span>
         </div>
         <div className="flex items-baseline mt-2 space-x-2">
-          <span className="text-3xl font-extrabold text-gray-900 tracking-tight">
+          <span className="text-3xl font-extrabold text-[#F8F8FC] tracking-tight">
             {formatValue(value)}
           </span>
         </div>
         {description && (
-          <p className="text-xs text-gray-500 mt-1 line-clamp-1">{description}</p>
+          <p className="text-xs text-[#A4A6B8] mt-1 line-clamp-1">{description}</p>
         )}
       </div>
 
-      <div className="mt-4 pt-3 border-t border-gray-100 flex items-center justify-between text-xs">
+      <div className="mt-4 pt-3 border-t border-white/[0.06] flex items-center justify-between text-xs">
         {delta ? (
           <div
-            className={`flex items-center font-semibold ${
+            className={`flex items-center font-semibold text-xs ${
               delta.isNeutral
-                ? "text-gray-500"
+                ? "text-[#A4A6B8]"
                 : delta.isPositiveGood
-                ? "text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full"
-                : "text-rose-700 bg-rose-50 px-2 py-0.5 rounded-full"
+                ? "text-emerald-400 bg-emerald-500/15 border border-emerald-500/30 px-2 py-0.5 rounded-md"
+                : "text-rose-400 bg-rose-500/15 border border-rose-500/30 px-2 py-0.5 rounded-md"
             }`}
           >
             <span>{delta.text}</span>
           </div>
         ) : (
-          <span className="text-gray-400 italic">No baseline delta</span>
+          <span className="text-[#929292] italic text-xs">No baseline delta</span>
         )}
       </div>
     </div>

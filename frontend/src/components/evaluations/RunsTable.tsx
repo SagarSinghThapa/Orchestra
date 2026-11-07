@@ -45,29 +45,29 @@ export function RunsTable({
   }
 
   return (
-    <div className="bg-white rounded-xl shadow-xs border border-gray-200 overflow-hidden">
-      <div className="px-5 py-4 border-b border-gray-200 flex items-center justify-between">
-        <h3 className="text-base font-bold text-gray-900">Historical Benchmark Runs</h3>
-        <span className="text-xs text-gray-500 font-medium">
+    <div className="bg-[#20212B] rounded-xl shadow-xl border border-white/[0.08] overflow-hidden">
+      <div className="px-6 py-4 border-b border-white/[0.06] flex items-center justify-between bg-[#15151B]">
+        <h3 className="text-sm font-semibold text-[#F8F8FC]">Historical Benchmark Runs</h3>
+        <span className="text-xs text-[#929292]">
           Showing {runs.length} {runs.length === 1 ? "run" : "runs"}
         </span>
       </div>
 
       <div className="overflow-x-auto">
-        <table className="min-w-full divide-y divide-gray-200">
-          <thead className="bg-gray-50 text-[11px] font-bold text-gray-500 uppercase tracking-wider">
+        <table className="min-w-full divide-y divide-white/[0.06]">
+          <thead className="bg-[#15151B] text-[11px] font-semibold text-[#929292] uppercase tracking-wider">
             <tr>
-              <th className="px-5 py-3 text-left">Suite / Target</th>
-              <th className="px-4 py-3 text-left">Status</th>
-              <th className="px-4 py-3 text-left">Cases Passed</th>
-              <th className="px-4 py-3 text-left">Duration</th>
-              <th className="px-4 py-3 text-left">Mode</th>
-              <th className="px-4 py-3 text-left">Baseline</th>
-              <th className="px-4 py-3 text-left">Executed At</th>
-              <th className="px-5 py-3 text-right">Actions</th>
+              <th className="px-6 py-3.5 text-left">Suite / Target</th>
+              <th className="px-4 py-3.5 text-left">Status</th>
+              <th className="px-4 py-3.5 text-left">Cases Passed</th>
+              <th className="px-4 py-3.5 text-left">Duration</th>
+              <th className="px-4 py-3.5 text-left">Mode</th>
+              <th className="px-4 py-3.5 text-left">Baseline</th>
+              <th className="px-4 py-3.5 text-left">Executed At</th>
+              <th className="px-6 py-3.5 text-right">Actions</th>
             </tr>
           </thead>
-          <tbody className="bg-white divide-y divide-gray-100 text-sm">
+          <tbody className="bg-[#20212B] divide-y divide-white/[0.04] text-xs">
             {runs.map((run) => {
               const isActionLoading = actionLoadingId === run.id;
               const formattedDate = new Date(run.created_at).toLocaleString(undefined, {
@@ -78,10 +78,10 @@ export function RunsTable({
               });
 
               return (
-                <tr key={run.id} className="hover:bg-gray-50/70 transition-colors">
-                  <td className="px-5 py-3.5">
-                    <div className="font-semibold text-gray-900">{run.suite_id}</div>
-                    <div className="text-xs text-gray-400 font-mono">
+                <tr key={run.id} className="hover:bg-white/[0.02] transition-colors">
+                  <td className="px-6 py-3.5">
+                    <div className="font-semibold text-[#F8F8FC]">{run.suite_id}</div>
+                    <div className="text-[11px] text-[#929292] font-mono">
                       {run.dataset_id} v{run.dataset_version}
                     </div>
                   </td>
@@ -89,54 +89,49 @@ export function RunsTable({
                     <StatusBadge status={run.status} />
                   </td>
                   <td className="px-4 py-3.5">
-                    <span className="font-semibold text-gray-900">
+                    <span className="font-semibold text-[#F8F8FC]">
                       {run.passed_cases}
                     </span>
-                    <span className="text-gray-400 text-xs"> / {run.total_cases}</span>
+                    <span className="text-[#929292] text-xs"> / {run.total_cases}</span>
                   </td>
-                  <td className="px-4 py-3.5 text-gray-600 font-mono text-xs">
+                  <td className="px-4 py-3.5 text-[#A4A6B8] font-mono text-xs">
                     {run.duration_ms ? `${run.duration_ms.toFixed(0)}ms` : "—"}
                   </td>
-                  <td className="px-4 py-3.5 text-xs text-gray-600 capitalize">
+                  <td className="px-4 py-3.5 text-xs text-[#A4A6B8] capitalize">
                     {run.execution_mode}
                   </td>
                   <td className="px-4 py-3.5">
                     {run.is_baseline ? (
-                      <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-bold bg-amber-50 text-amber-800 border border-amber-200">
-                        ★ Active Baseline
+                      <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-[#5146FF]/20 text-[#8B7CFF] border border-[#5146FF]/30">
+                        Active Baseline
                       </span>
                     ) : (
-                      <span className="text-gray-400 text-xs">—</span>
-                    )}
-                  </td>
-                  <td className="px-4 py-3.5 text-xs text-gray-500 whitespace-nowrap">
-                    {formattedDate}
-                  </td>
-                  <td className="px-5 py-3.5 text-right space-x-2 whitespace-nowrap">
-                    <button
-                      type="button"
-                      onClick={() => onInspect(run)}
-                      className="px-2.5 py-1 text-xs font-semibold rounded-md border border-gray-300 text-gray-700 hover:bg-gray-50 transition-colors"
-                    >
-                      Inspect
-                    </button>
-                    {!run.is_baseline && (
                       <button
                         type="button"
-                        disabled={isViewer || isActionLoading}
+                        disabled={isViewer || isActionLoading || run.status !== "completed"}
                         onClick={() => handleBaseline(run.id)}
-                        title={isViewer ? "Viewers cannot modify baselines" : "Promote to baseline"}
-                        className="px-2.5 py-1 text-xs font-semibold rounded-md border border-amber-300 text-amber-800 hover:bg-amber-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                        className="text-xs text-[#929292] hover:text-[#5146FF] disabled:opacity-40 font-medium cursor-pointer"
                       >
                         Set Baseline
                       </button>
                     )}
+                  </td>
+                  <td className="px-4 py-3.5 text-xs text-[#929292]">
+                    {formattedDate}
+                  </td>
+                  <td className="px-6 py-3.5 text-right space-x-3">
+                    <button
+                      type="button"
+                      onClick={() => onInspect(run)}
+                      className="text-xs font-semibold text-[#8B7CFF] hover:text-white transition cursor-pointer"
+                    >
+                      Inspect
+                    </button>
                     <button
                       type="button"
                       disabled={isViewer || isActionLoading}
                       onClick={() => handleDelete(run.id)}
-                      title={isViewer ? "Viewers cannot delete runs" : "Delete run"}
-                      className="px-2.5 py-1 text-xs font-semibold rounded-md border border-rose-200 text-rose-700 hover:bg-rose-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                      className="text-xs font-medium text-rose-400 hover:text-rose-300 disabled:opacity-40 transition cursor-pointer"
                     >
                       Delete
                     </button>
@@ -150,6 +145,3 @@ export function RunsTable({
     </div>
   );
 }
-
-// Re-export alias for backward compatibility
-export const RunTable = RunsTable;

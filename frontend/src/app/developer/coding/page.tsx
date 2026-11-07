@@ -119,11 +119,13 @@ export default function CodingAssistantPage() {
 
   if (!selectedProject) {
     return (
-      <div className="max-w-4xl mx-auto py-12 px-4">
-        <EmptyState
-          title="No Project Selected"
-          description="Please select or create an active project workspace to use the Coding Assistant."
-        />
+      <div className="p-8 workspace-gradient-bg min-h-[calc(100vh-3.5rem)]">
+        <div className="max-w-4xl mx-auto py-12 px-4">
+          <EmptyState
+            title="No Project Selected"
+            description="Please select or create an active project workspace to use the Coding Assistant."
+          />
+        </div>
       </div>
     );
   }
@@ -135,15 +137,18 @@ export default function CodingAssistantPage() {
   );
 
   return (
-    <div className="max-w-5xl mx-auto space-y-6 pb-12">
-      <div className="flex items-center justify-between">
+    <div className="p-6 sm:p-8 space-y-6 max-w-5xl mx-auto pb-12">
+      {/* Header */}
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-3xl font-bold text-gray-900">Autonomous Coding Assistant</h1>
-          <p className="text-sm text-gray-500 mt-1">
+          <h1 className="text-2xl sm:text-3xl font-bold text-[#F8F8FC] tracking-tight">
+            Autonomous Coding Assistant
+          </h1>
+          <p className="text-xs sm:text-sm text-[#A4A6B8] mt-1 max-w-2xl">
             Two-stage verified code synthesis: generate and review diffs before applying to host disk.
           </p>
         </div>
-        <span className="text-xs font-semibold px-2.5 py-1 bg-gray-100 text-gray-700 rounded-full border">
+        <span className="text-xs font-medium px-3 py-1 bg-[#20212B] text-[#8B7CFF] rounded-lg border border-white/[0.08]">
           Workspace: {selectedProject.name}
         </span>
       </div>
@@ -151,11 +156,11 @@ export default function CodingAssistantPage() {
       <ClassificationBanner />
 
       {error && (
-        <div className="rounded-lg bg-red-50 p-4 border border-red-200 text-sm text-red-700 flex items-start justify-between">
+        <div className="rounded-xl bg-rose-500/10 p-4 border border-rose-500/20 text-xs text-rose-300 flex items-start justify-between">
           <span>{error}</span>
           <button
             onClick={() => setError(null)}
-            className="text-red-500 hover:text-red-700 font-bold ml-4 cursor-pointer"
+            className="text-rose-400 hover:text-rose-200 font-bold ml-4 cursor-pointer"
           >
             ✕
           </button>
@@ -164,19 +169,19 @@ export default function CodingAssistantPage() {
 
       {/* Applied Confirmation Banner */}
       {appliedResponse && (
-        <div className="rounded-lg bg-emerald-50 p-5 border border-emerald-200">
-          <div className="flex items-center gap-2 text-emerald-800 font-bold text-base mb-1">
-            <svg className="h-5 w-5 text-emerald-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <div className="rounded-xl bg-emerald-500/15 p-5 border border-emerald-500/30">
+          <div className="flex items-center gap-2 text-emerald-400 font-bold text-sm mb-1">
+            <svg className="h-5 w-5 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
             </svg>
             <span>Changes Applied Successfully to Disk</span>
           </div>
-          <p className="text-xs text-emerald-700">{appliedResponse.summary}</p>
+          <p className="text-xs text-emerald-300/90">{appliedResponse.summary}</p>
           <div className="mt-3 flex flex-wrap gap-2">
             {appliedResponse.proposed_patches.map((p, idx) => (
               <span
                 key={idx}
-                className="inline-flex items-center gap-1 text-xs px-2.5 py-1 rounded bg-white border border-emerald-300 text-emerald-800 font-mono"
+                className="inline-flex items-center gap-1 text-xs px-2.5 py-1 rounded-lg bg-[#20212B] border border-emerald-500/30 text-emerald-300 font-mono"
               >
                 ✓ {p.path}
               </span>
@@ -189,45 +194,45 @@ export default function CodingAssistantPage() {
       <Card>
         <div className="space-y-4">
           <div>
-            <label className="block text-xs font-semibold uppercase tracking-wider text-gray-500 mb-1">
+            <label className="block text-[11px] font-semibold uppercase tracking-wider text-[#929292] mb-1.5">
               Task Prompt (1 - 4,000 characters)
             </label>
             <textarea
               placeholder="Describe the feature, bugfix, or refactor to implement across the workspace..."
               rows={4}
               maxLength={4000}
-              className="w-full border border-gray-300 rounded-lg p-3 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full bg-[#15151B] border border-white/[0.08] rounded-xl p-3.5 text-xs text-[#F5F5F5] placeholder-[#929292] focus:outline-none focus:border-[#5146FF] transition resize-none"
               value={prompt}
               onChange={(e) => setPrompt(e.target.value)}
               disabled={loading || applying}
             />
-            <div className="text-right text-[11px] text-gray-400 mt-1">
+            <div className="text-right text-[11px] font-mono text-[#929292] mt-1">
               {prompt.length} / 4000 characters
             </div>
           </div>
 
           <div>
-            <label className="block text-xs font-semibold uppercase tracking-wider text-gray-500 mb-1">
+            <label className="block text-[11px] font-semibold uppercase tracking-wider text-[#929292] mb-1.5">
               Target Files (Optional, comma-separated relative paths)
             </label>
             <input
               type="text"
               placeholder="e.g. app/main.py, tests/test_main.py"
-              className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full bg-[#15151B] border border-white/[0.08] rounded-xl px-3.5 py-2.5 text-xs text-[#F5F5F5] placeholder-[#929292] focus:outline-none focus:border-[#5146FF] transition"
               value={targetFilesInput}
               onChange={(e) => setTargetFilesInput(e.target.value)}
               disabled={loading || applying}
             />
           </div>
 
-          <div className="flex items-center justify-between pt-2 border-t border-gray-100">
-            <span className="text-xs text-gray-500 italic">
+          <div className="flex flex-wrap items-center justify-between gap-3 pt-3 border-t border-white/[0.06]">
+            <span className="text-xs text-[#929292] italic">
               Stage 1 executes dry-run preview with AST syntax validation.
             </span>
             <button
               onClick={handleGenerateProposal}
               disabled={loading || applying || !prompt.trim()}
-              className="px-5 py-2.5 rounded-lg text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors shadow-sm cursor-pointer"
+              className="px-5 py-2.5 rounded-xl text-xs font-semibold text-white bg-[#5146FF] hover:bg-[#4338e8] disabled:opacity-50 disabled:cursor-not-allowed transition-all active:scale-95 shadow-sm cursor-pointer"
             >
               {loading ? "Synthesizing Proposal..." : "Generate Proposal (Preview)"}
             </button>
@@ -240,28 +245,28 @@ export default function CodingAssistantPage() {
         <div className="space-y-6 animate-in fade-in duration-200">
           <Card>
             <div className="space-y-4">
-              <div className="flex items-center justify-between border-b pb-3">
+              <div className="flex flex-wrap items-center justify-between gap-2 border-b border-white/[0.06] pb-3">
                 <div>
-                  <h2 className="text-lg font-bold text-gray-900">Synthesized Proposal Review</h2>
-                  <p className="text-xs text-gray-500 mt-0.5">
+                  <h2 className="text-base font-semibold text-[#F8F8FC]">Synthesized Proposal Review</h2>
+                  <p className="text-xs text-[#929292] mt-0.5">
                     Carefully review the proposed patch diffs and syntax validation before applying.
                   </p>
                 </div>
-                <span className="text-xs font-semibold px-2.5 py-1 bg-blue-50 text-blue-700 rounded-full border border-blue-200">
+                <span className="text-xs font-medium px-2.5 py-1 bg-[#5146FF]/15 text-[#8B7CFF] rounded-lg border border-[#5146FF]/30">
                   {proposal.proposed_patches.length} files modified
                 </span>
               </div>
 
               {/* Narrative Summary */}
-              <div className="bg-gray-50 p-4 rounded-lg border text-sm text-gray-800 leading-relaxed">
+              <div className="bg-[#15151B] p-4 rounded-xl border border-white/[0.06] text-xs text-[#F5F5F5] leading-relaxed">
                 {proposal.summary}
               </div>
 
               {/* Warnings if any */}
               {proposal.warnings && proposal.warnings.length > 0 && (
-                <div className="rounded-lg bg-amber-50 p-3.5 border border-amber-200 text-xs text-amber-800 space-y-1">
+                <div className="rounded-xl bg-amber-500/10 p-3.5 border border-amber-500/20 text-xs text-amber-300 space-y-1">
                   <div className="font-semibold">Compiler / Linter Warnings:</div>
-                  <ul className="list-disc pl-5 space-y-0.5">
+                  <ul className="list-disc pl-5 space-y-0.5 text-amber-200/80">
                     {proposal.warnings.map((w, idx) => (
                       <li key={idx}>{w}</li>
                     ))}
@@ -276,14 +281,14 @@ export default function CodingAssistantPage() {
                     patch.validation_status.toLowerCase() === "valid" ||
                     patch.validation_status.toLowerCase().startsWith("skipped");
                   return (
-                    <div key={idx} className="space-y-2">
+                    <div key={idx} className="space-y-2 rounded-xl bg-[#15151B] p-3 border border-white/[0.06]">
                       <div className="flex items-center justify-between text-xs font-mono">
-                        <span className="font-semibold text-gray-800">{patch.path}</span>
+                        <span className="font-medium text-[#F8F8FC]">{patch.path}</span>
                         <span
-                          className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                          className={`px-2 py-0.5 rounded text-[11px] font-medium ${
                             isValid
-                              ? "bg-emerald-100 text-emerald-800 border border-emerald-300"
-                              : "bg-rose-100 text-rose-800 border border-rose-300"
+                              ? "bg-emerald-500/15 text-emerald-400 border border-emerald-500/30"
+                              : "bg-rose-500/15 text-rose-400 border border-rose-500/30"
                           }`}
                         >
                           AST: {patch.validation_status}
@@ -296,15 +301,15 @@ export default function CodingAssistantPage() {
               </div>
 
               {/* Stage 3: Explicit Apply Action */}
-              <div className="pt-4 border-t border-gray-100 flex items-center justify-between">
+              <div className="pt-4 border-t border-white/[0.06] flex flex-wrap items-center justify-between gap-3">
                 <div>
                   {isViewer && (
-                    <p className="text-xs text-amber-600 font-medium">
+                    <p className="text-xs text-amber-400 font-medium">
                       Viewer role is not authorized to apply code modifications.
                     </p>
                   )}
                   {hasInvalidAst && (
-                    <p className="text-xs text-rose-600 font-medium">
+                    <p className="text-xs text-rose-400 font-medium">
                       Cannot apply changes: one or more files failed AST validation.
                     </p>
                   )}
@@ -314,7 +319,7 @@ export default function CodingAssistantPage() {
                   <button
                     onClick={() => setProposal(null)}
                     disabled={applying}
-                    className="px-4 py-2 text-xs font-semibold text-gray-600 hover:text-gray-900 cursor-pointer"
+                    className="px-4 py-2 text-xs font-semibold text-[#A4A6B8] hover:text-[#F8F8FC] transition cursor-pointer"
                   >
                     Discard Proposal
                   </button>
@@ -322,7 +327,7 @@ export default function CodingAssistantPage() {
                   <button
                     onClick={() => setShowConfirmModal(true)}
                     disabled={applying || isViewer || hasInvalidAst}
-                    className="px-6 py-2.5 rounded-lg text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors shadow-sm cursor-pointer"
+                    className="px-6 py-2.5 rounded-xl text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40 disabled:cursor-not-allowed transition-all active:scale-95 shadow-sm cursor-pointer"
                   >
                     {applying ? "Applying Modifications..." : "Apply to Workspace"}
                   </button>
@@ -335,23 +340,23 @@ export default function CodingAssistantPage() {
 
       {/* Confirmation Modal */}
       {showConfirmModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-          <div className="bg-white rounded-xl shadow-xl max-w-md w-full p-6 animate-in fade-in zoom-in-95 duration-150">
-            <h3 className="text-base font-bold text-gray-900 mb-2">Confirm Code Application</h3>
-            <p className="text-xs text-gray-600 leading-relaxed mb-4">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm p-4">
+          <div className="bg-[#20212B] border border-white/[0.12] rounded-2xl shadow-2xl max-w-md w-full p-6 animate-in fade-in zoom-in-95 duration-150">
+            <h3 className="text-base font-semibold text-[#F8F8FC] mb-2">Confirm Code Application</h3>
+            <p className="text-xs text-[#A4A6B8] leading-relaxed mb-4">
               Apply changes to workspace? This will write verified patch modifications to the host filesystem.
               Optimistic concurrency guards will verify file hashes before writing.
             </p>
             <div className="flex justify-end gap-3">
               <button
                 onClick={() => setShowConfirmModal(false)}
-                className="px-4 py-2 text-xs font-semibold text-gray-600 hover:text-gray-800 cursor-pointer"
+                className="px-4 py-2 text-xs font-semibold text-[#A4A6B8] hover:text-[#F8F8FC] transition cursor-pointer"
               >
                 Cancel
               </button>
               <button
                 onClick={handleApplyChanges}
-                className="px-5 py-2 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg shadow-sm cursor-pointer"
+                className="px-5 py-2 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 rounded-xl shadow-sm transition active:scale-95 cursor-pointer"
               >
                 Yes, Write to Disk
               </button>
