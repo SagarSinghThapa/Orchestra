@@ -1,4 +1,4 @@
-from typing import Any, Optional
+from typing import Any, Optional, Union
 from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -41,7 +41,7 @@ class Settings(BaseSettings):
     refresh_token_expire_days: int = 7
     cookie_secure: bool = False
     cookie_samesite: str = "lax"
-    cors_allowed_origins: list[str] = [
+    cors_allowed_origins: Union[list[str], str] = [
         "http://localhost:3000",
         "http://127.0.0.1:3000",
     ]
