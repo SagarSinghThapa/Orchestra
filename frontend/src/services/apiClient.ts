@@ -264,7 +264,7 @@ class ApiAdapter {
       throw new ApiError(response.status, message, errorData?.detail || errorData, undefined, requestId);
     }
 
-    const contentType = response.headers.get("content-type") || "";
+    const contentType = response.headers?.get ? response.headers.get("content-type") || "" : "";
     if (contentType.includes("application/json")) {
       const data = await response.json();
       if (data?.session_id) {

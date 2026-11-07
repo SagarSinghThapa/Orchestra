@@ -161,4 +161,79 @@ test.describe('Multi-Tenant Project Lifecycle & Isolation E2E', () => {
       await expect(dialog).not.toBeVisible();
     }
   });
+
+  test('sidebar Projects navigation renders Projects page, does NOT show raw JSON, and survives browser reload', async ({
+    page,
+  }) => {
+    await loginAs(page, 'member');
+
+    // 1. Create a project first so we have guaranteed data
+    const uniqueName = `Workspace Navigation ${Date.now()}`;
+    await page.locator('#project-header-slot button').first().click();
+    await page.getByRole('button', { name: '+ Create New Project' }).click();
+    await page.getByPlaceholder('e.g. Distributed Core Refactor').fill(uniqueName);
+    await page.getByPlaceholder('Brief summary of project scope and architecture...').fill('Testing frontend projects navigation');
+    await page.getByRole('button', { name: 'Create Project' }).click();
+    await expect(page.locator('#project-header-slot button').first()).toContainText(uniqueName);
+
+    // 2. Click Projects link in the left sidebar
+    await page.getByRole('link', { name: 'Projects' }).click();
+    await page.waitForURL('**/projects');
+
+    // 3. Assert frontend Projects heading exists and NO raw JSON appears in body
+    const heading = page.getByRole('heading', { name: 'Project Workspaces' });
+    await expect(heading).toBeVisible();
+
+    const bodyText = await page.innerText('body');
+    expect(bodyText).not.toMatch(/^\[\s*\{.*"id":\s*\d+/);
+
+    // 4. Verify project card exists with name and Open Workspace button
+    const card = page.locator(`[data-testid="project-card"]:has-text("${uniqueName}")`);
+    await expect(card).toBeVisible();
+    await expect(card.getByRole('button', { name: /Open Workspace/i })).toBeVisible();
+
+    // 5. Browser refresh: refresh page at /projects
+    await page.reload();
+    await expect(page.getByRole('heading', { name: 'Project Workspaces' })).toBeVisible();
+    const refreshedBody = await page.innerText('body');
+    expect(refreshedBody).not.toMatch(/^\[\s*\{.*"id":\s*\d+/);
+    await expect(page.locator(`[data-testid="project-card"]:has-text("${uniqueName}")`)).toBeVisible();
+
+    // 6. Click Open Workspace on the project card
+    await card.getByRole('button', { name: /Open Workspace/i }).click();
+    await page.waitForURL('**/chat');
+
+    // 7. Verify header selector reflects the active project
+    await expect(page.locator('#project-header-slot button').first()).toContainText(uniqueName);
+  });
+
+  test('route collision regression: browser GET and API GET /projects resolve to distinct application layers', async ({
+    page,
+    request,
+  }) => {
+    await loginAs(page, 'member');
+
+    const cookies = await page.context().cookies();
+    const accessCookie = cookies.find((c) => c.name === 'access_token');
+
+    // 1. API request with application/json and X-Orchestra-Request header -> resolves to FastAPI backend
+    const apiResp = await request.get('http://127.0.0.1:8001/projects', {
+      headers: {
+        Cookie: `access_token=${accessCookie?.value}`,
+        'X-Orchestra-Request': 'true',
+        Accept: 'application/json',
+      },
+    });
+    expect(apiResp.status()).toBe(200);
+    expect(apiResp.headers()['content-type']).toContain('application/json');
+    const apiData = await apiResp.json();
+    expect(Array.isArray(apiData)).toBe(true);
+
+    // 2. Browser page navigation with Accept: text/html -> resolves to Next.js frontend UI
+    await page.goto('/projects');
+    await expect(page.getByRole('heading', { name: 'Project Workspaces' })).toBeVisible();
+    const pageContent = await page.content();
+    expect(pageContent).toContain('<!DOCTYPE html>');
+    expect(pageContent).toContain('Project Workspaces');
+  });
 });
