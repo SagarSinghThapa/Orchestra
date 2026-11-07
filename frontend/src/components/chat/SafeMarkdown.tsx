@@ -11,7 +11,7 @@ interface SafeMarkdownProps {
 
 export function SafeMarkdown({ content }: SafeMarkdownProps) {
   return (
-    <div className="prose prose-sm max-w-none text-gray-800 break-words">
+    <div className="prose prose-invert prose-sm max-w-none text-[#F5F5F5] break-words" data-testid="message-content">
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
         rehypePlugins={[
@@ -42,7 +42,7 @@ export function SafeMarkdown({ content }: SafeMarkdownProps) {
                 href={href}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="text-blue-600 underline hover:text-blue-800"
+                className="text-[#8B7CFF] underline hover:text-[#5146FF]"
                 {...props}
               >
                 {children}
@@ -51,7 +51,7 @@ export function SafeMarkdown({ content }: SafeMarkdownProps) {
           },
           pre: ({ children, ...props }) => (
             <pre
-              className="bg-gray-900 text-gray-100 p-3 rounded-md overflow-x-auto my-2 text-xs font-mono"
+              className="bg-[#20212B] text-[#F5F5F5] p-3 rounded-xl border border-white/[0.08] overflow-x-auto my-2 text-xs font-mono"
               {...props}
             >
               {children}
@@ -61,7 +61,7 @@ export function SafeMarkdown({ content }: SafeMarkdownProps) {
             const isInline = !className;
             return isInline ? (
               <code
-                className="bg-gray-100 text-red-600 px-1 py-0.5 rounded text-xs font-mono"
+                className="bg-[#20212B] text-[#8B7CFF] px-1.5 py-0.5 rounded text-xs font-mono border border-white/[0.08]"
                 {...props}
               >
                 {children}
