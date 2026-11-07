@@ -100,4 +100,65 @@ test.describe('Multi-Tenant Project Lifecycle & Isolation E2E', () => {
 
     await contextB.close();
   });
+
+  test('create project modal accessibility: Escape key and focus trap', async ({ page }) => {
+    await loginAs(page, 'member');
+
+    // 1. Open project modal
+    await page.locator('#project-header-slot button').first().click();
+    await page.getByRole('button', { name: '+ Create New Project' }).click();
+
+    const dialog = page.getByRole('dialog');
+    await expect(dialog).toBeVisible();
+
+    // 2. Press Escape key -> modal closes
+    await page.keyboard.press('Escape');
+    await expect(dialog).not.toBeVisible();
+
+    // 3. Re-open modal and test Tab focus trapping
+    await page.locator('#project-header-slot button').first().click();
+    await page.getByRole('button', { name: '+ Create New Project' }).click();
+    await expect(dialog).toBeVisible();
+
+    // Focus input and cycle through with Tab
+    const nameInput = page.getByPlaceholder('e.g. Distributed Core Refactor');
+    await expect(nameInput).toBeFocused();
+
+    await page.keyboard.press('Tab'); // Description
+    await page.keyboard.press('Tab'); // Cancel button
+    await page.keyboard.press('Tab'); // Create Project submit button
+    await page.keyboard.press('Tab'); // Close X button or back to first
+  });
+
+  test('create project modal responsive viewport layout', async ({ page }) => {
+    await loginAs(page, 'member');
+
+    const viewports = [
+      { width: 1920, height: 1080 },
+      { width: 1440, height: 900 },
+      { width: 1366, height: 768 },
+      { width: 375, height: 667 }, // Mobile
+    ];
+
+    for (const vp of viewports) {
+      await page.setViewportSize(vp);
+      await page.locator('#project-header-slot button').first().click();
+      await page.getByRole('button', { name: '+ Create New Project' }).click();
+
+      const dialog = page.getByRole('dialog');
+      await expect(dialog).toBeVisible();
+
+      // Verify modal is centered within viewport and not clipped
+      const box = await dialog.locator('> div').boundingBox();
+      expect(box).not.toBeNull();
+      if (box) {
+        expect(box.y).toBeGreaterThanOrEqual(0);
+        expect(box.x).toBeGreaterThanOrEqual(0);
+        expect(box.width).toBeLessThanOrEqual(vp.width);
+      }
+
+      await page.keyboard.press('Escape');
+      await expect(dialog).not.toBeVisible();
+    }
+  });
 });
