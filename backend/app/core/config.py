@@ -3,6 +3,26 @@ from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
+PROVIDER_PRESETS: dict[str, dict[str, str]] = {
+    "openai": {
+        "base_url": "https://api.openai.com/v1",
+        "default_model": "gpt-4o-mini",
+    },
+    "groq": {
+        "base_url": "https://api.groq.com/openai/v1",
+        "default_model": "llama-3.3-70b-versatile",
+    },
+    "nvidia": {
+        "base_url": "https://integrate.api.nvidia.com/v1",
+        "default_model": "meta/llama-3.1-70b-instruct",
+    },
+    "gemini": {
+        "base_url": "https://generativelanguage.googleapis.com/v1beta/openai",
+        "default_model": "gemini-1.5-flash",
+    },
+}
+
+
 class Settings(BaseSettings):
     database_url: Optional[str] = None
     jwt_secret: Optional[str] = None
@@ -61,6 +81,7 @@ class Settings(BaseSettings):
     llm_timeout_seconds: float = 20.0
     llm_max_output_tokens: int = 2048
     llm_temperature: float = 0.0
+    llm_max_retries: int = 2
     research_timeout_seconds: float = 45.0
     max_llm_calls_per_request: int = 3
     # Developer Subsystem Settings
@@ -172,17 +193,18 @@ class Settings(BaseSettings):
                     "LLM_PROVIDER cannot be 'test' in production environment. "
                     "Configure a real provider such as 'openai_compatible' with required credentials."
                 )
-            if self.llm_provider == "openai_compatible":
+            if self.llm_provider in ("openai_compatible", "openai", "groq", "nvidia", "gemini"):
                 if not self.llm_api_key:
                     raise RuntimeError(
-                        "LLM_API_KEY must be configured for openai_compatible provider in production"
+                        f"LLM_API_KEY must be configured for {self.llm_provider} provider in production"
                     )
-                if not self.llm_base_url or not (
-                    self.llm_base_url.startswith("http://") or self.llm_base_url.startswith("https://")
-                ):
-                    raise RuntimeError(
-                        "LLM_BASE_URL must begin with 'http://' or 'https://' in production"
-                    )
+                if self.llm_provider == "openai_compatible":
+                    if not self.llm_base_url or not (
+                        self.llm_base_url.startswith("http://") or self.llm_base_url.startswith("https://")
+                    ):
+                        raise RuntimeError(
+                            "LLM_BASE_URL must begin with 'http://' or 'https://' in production"
+                        )
 
             # Database Backend Guard (strict rejection of SQLite)
             db_url = (self.database_url or "").lower()
