@@ -61,6 +61,8 @@ describe("Wave 14.6.2: Stitch Chat Workspace & Presentation Layer", () => {
     expect(textbox).toBeInTheDocument();
     expect(screen.getByText("Alpha Project")).toBeInTheDocument();
     expect(screen.getByText(/⌘ Enter/)).toBeInTheDocument();
+    expect(screen.getByText("Orchestra AI")).toBeInTheDocument();
+    expect(screen.getByTitle("Upload and index documents in Documents workspace")).toHaveAttribute("href", "/documents");
 
     // Typing in composer
     fireEvent.change(textbox, { target: { value: "Build authentication module" } });
@@ -74,7 +76,6 @@ describe("Wave 14.6.2: Stitch Chat Workspace & Presentation Layer", () => {
 
     expect(onSend).toHaveBeenCalledWith("Build authentication module", {
       forced_intent: undefined,
-      model_mode: "balanced",
     });
   });
 

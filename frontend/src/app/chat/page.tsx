@@ -136,7 +136,7 @@ export default function ChatPage() {
   const handleSendMessage = useCallback(
     async (
       content: string,
-      options?: { forced_intent?: IntentType; model_mode?: string }
+      options?: { forced_intent?: IntentType }
     ) => {
       if (!selectedProject || isExecuting) return;
 

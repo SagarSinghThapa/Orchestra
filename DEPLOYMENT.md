@@ -96,6 +96,10 @@ python -c "import secrets; print('JWT_SECRET=' + secrets.token_hex(32))"
 | `RATE_LIMIT_ENABLED` | boolean | `true` | Yes | Enforces request rate limits |
 | `RATE_LIMIT_BACKEND` | string | `redis` | Yes | Enforces distributed Redis sliding window limiter |
 
+> [!WARNING]
+> **Vector Embedding Transition Warning:**
+> Test vectors (`EMBEDDING_PROVIDER=test`) must never be mixed with real semantic embeddings (`EMBEDDING_PROVIDER=openai_compatible`). Both providers generate 1536-dimensional vectors to satisfy Qdrant's schema contract, but cosine similarity between synthetic test vectors and real embeddings is semantically invalid. When transitioning from local offline testing to production real-AI RAG, operators must purge or reindex the target Qdrant collection (`orchestra_knowledge`).
+
 ---
 
 ## 3. One-Command Boot & Initialization

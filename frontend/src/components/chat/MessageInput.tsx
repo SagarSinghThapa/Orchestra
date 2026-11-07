@@ -1,9 +1,10 @@
 "use client";
 
 import React, { useRef, useState, useEffect } from "react";
+import Link from "next/link";
 
 interface MessageInputProps {
-  onSend: (content: string, options?: { forced_intent?: "research" | "developer" | "direct_qa"; model_mode?: string }) => Promise<void>;
+  onSend: (content: string, options?: { forced_intent?: "research" | "developer" | "direct_qa" }) => Promise<void>;
   disabled?: boolean;
   activeProjectName?: string;
   forcedIntent?: "research" | "developer" | "direct_qa" | null;
@@ -24,10 +25,7 @@ export function MessageInput({
   onChange,
 }: MessageInputProps) {
   const [internalContent, setInternalContent] = useState("");
-  const [showOptions, setShowOptions] = useState(false);
-  const [selectedModelMode, setSelectedModelMode] = useState<string>("balanced");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const isControlled = value !== undefined;
   const content = isControlled ? value : internalContent;
@@ -59,7 +57,6 @@ export function MessageInput({
 
     await onSend(trimmed, {
       forced_intent: forcedIntent || undefined,
-      model_mode: selectedModelMode,
     });
   };
 
@@ -122,35 +119,21 @@ export function MessageInput({
         className="w-full bg-transparent border-0 text-[#F5F5F5] placeholder-[#929292] text-sm sm:text-base leading-relaxed resize-none p-0 focus:ring-0 focus:outline-none disabled:opacity-60"
       />
 
-      {/* Hidden File Input */}
-      <input
-        ref={fileInputRef}
-        type="file"
-        multiple
-        className="hidden"
-        onChange={(e) => {
-          if (e.target.files && e.target.files.length > 0) {
-            alert(`Selected ${e.target.files.length} file(s). Use Documents workspace to index files into vector knowledge base.`);
-          }
-        }}
-      />
-
       {/* Bottom Action Toolbar */}
       <div className="flex flex-wrap items-center justify-between gap-3 pt-3 mt-2 border-t border-white/[0.06]">
         {/* Left Toolbar Controls */}
         <div className="flex items-center gap-2 sm:gap-3 text-xs text-[#A4A6B8]">
-          {/* Attach Button */}
-          <button
-            type="button"
-            onClick={() => fileInputRef.current?.click()}
+          {/* Attach Button: Navigates to Documents workspace for real knowledge ingestion */}
+          <Link
+            href="/documents"
             className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-white/[0.04] hover:bg-white/[0.08] text-[#A4A6B8] hover:text-[#F8F8FC] transition border border-white/[0.06] cursor-pointer"
-            title="Attach documents"
+            title="Upload and index documents in Documents workspace"
           >
             <svg className="w-3.5 h-3.5 text-[#929292]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
             </svg>
             <span className="hidden sm:inline">Attach</span>
-          </button>
+          </Link>
 
           {/* Project Pill */}
           <div className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-white/[0.04] text-[#A4A6B8] border border-white/[0.06] max-w-[180px]">
@@ -183,51 +166,13 @@ export function MessageInput({
             <span className="hidden sm:inline">Search</span>
           </button>
 
-          {/* Options Popover */}
-          <div className="relative">
-            <button
-              type="button"
-              onClick={() => setShowOptions(!showOptions)}
-              className="inline-flex items-center justify-center w-7 h-7 rounded-lg bg-white/[0.04] hover:bg-white/[0.08] text-[#A4A6B8] hover:text-[#F8F8FC] transition border border-white/[0.06] cursor-pointer"
-              title="Execution options"
-            >
-              <svg className="w-3.5 h-3.5 text-[#929292]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 12h.01M12 12h.01M19 12h.01M6 12a1 1 0 11-2 0 1 1 0 012 0zm7 0a1 1 0 11-2 0 1 1 0 012 0zm7 0a1 1 0 11-2 0 1 1 0 012 0z" />
-              </svg>
-            </button>
-
-            {showOptions && (
-              <div className="absolute bottom-full left-0 mb-2 w-52 rounded-xl bg-[#20212B] border border-white/[0.12] shadow-2xl p-2 z-50 text-xs">
-                <div className="px-2 py-1 text-[10px] uppercase tracking-wider text-[#929292] font-semibold border-b border-white/[0.06] mb-1">
-                  Model Routing Profile
-                </div>
-                {[
-                  { id: "balanced", label: "Default Balanced", desc: "OpenAI / Groq" },
-                  { id: "fast", label: "Fast Inference", desc: "Groq LLaMA-3.3" },
-                  { id: "reasoning", label: "Deep Reasoning", desc: "NVIDIA NIM / Gemini" },
-                ].map((mode) => (
-                  <button
-                    key={mode.id}
-                    type="button"
-                    onClick={() => {
-                      setSelectedModelMode(mode.id);
-                      setShowOptions(false);
-                    }}
-                    className={`w-full text-left px-2 py-1.5 rounded-lg flex items-center justify-between transition ${
-                      selectedModelMode === mode.id
-                        ? "bg-[#5146FF]/20 text-[#8B7CFF] font-medium"
-                        : "text-[#A4A6B8] hover:bg-white/[0.04] hover:text-[#F8F8FC]"
-                    }`}
-                  >
-                    <div>
-                      <div className="font-medium">{mode.label}</div>
-                      <div className="text-[10px] text-[#929292]">{mode.desc}</div>
-                    </div>
-                    {selectedModelMode === mode.id && <span className="text-[#5146FF] font-bold">✓</span>}
-                  </button>
-                ))}
-              </div>
-            )}
+          {/* Server Orchestration Engine Status Pill (Truthful non-interactive indicator) */}
+          <div
+            className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-white/[0.04] text-[#A4A6B8] border border-white/[0.06] text-xs select-none"
+            title="Server Orchestration Engine: Managed by operator environment configuration"
+          >
+            <span className="w-1.5 h-1.5 rounded-full bg-[#5146FF]" />
+            <span className="text-[11px] font-medium text-[#F8F8FC]">Orchestra AI</span>
           </div>
         </div>
 
