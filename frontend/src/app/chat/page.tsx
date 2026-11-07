@@ -22,6 +22,7 @@ export default function ChatPage() {
   const [memoryModalOpen, setMemoryModalOpen] = useState<boolean>(false);
   const [forcedIntent, setForcedIntent] = useState<IntentType | null>(null);
   const [inputContent, setInputContent] = useState<string>("");
+  const [recentDrawerOpen, setRecentDrawerOpen] = useState<boolean>(false);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const skipFetchSessionIdRef = useRef<number | null>(null);
@@ -33,6 +34,31 @@ export default function ChatPage() {
   useEffect(() => {
     scrollToBottom();
   }, [messages, isExecuting]);
+
+  // Global custom event listeners for sidebar actions
+  useEffect(() => {
+    const handleNewChatEvent = () => {
+      skipFetchSessionIdRef.current = null;
+      setActiveSessionId(null);
+      setMessages([]);
+      setErrorBanner(null);
+      setForcedIntent(null);
+      setInputContent("");
+    };
+
+    const handleToggleDrawer = () => setRecentDrawerOpen((prev) => !prev);
+    const handleOpenDrawer = () => setRecentDrawerOpen(true);
+
+    window.addEventListener("orchestra-new-chat", handleNewChatEvent);
+    window.addEventListener("orchestra-toggle-recent-conversations", handleToggleDrawer);
+    window.addEventListener("orchestra-open-recent-conversations", handleOpenDrawer);
+
+    return () => {
+      window.removeEventListener("orchestra-new-chat", handleNewChatEvent);
+      window.removeEventListener("orchestra-toggle-recent-conversations", handleToggleDrawer);
+      window.removeEventListener("orchestra-open-recent-conversations", handleOpenDrawer);
+    };
+  }, []);
 
   // Load sessions when project changes
   useEffect(() => {
@@ -115,6 +141,7 @@ export default function ChatPage() {
   const handleSelectSession = (id: number) => {
     skipFetchSessionIdRef.current = null;
     setActiveSessionId(id);
+    setRecentDrawerOpen(false);
   };
 
   const handleNewChat = () => {
@@ -124,6 +151,7 @@ export default function ChatPage() {
     setErrorBanner(null);
     setForcedIntent(null);
     setInputContent("");
+    setRecentDrawerOpen(false);
   };
 
   const handleSelectPromptFromHero = (promptText: string, intent?: IntentType) => {
@@ -246,10 +274,24 @@ export default function ChatPage() {
     );
   }
 
+  const composerElement = (
+    <MessageInput
+      onSend={handleSendMessage}
+      disabled={isExecuting}
+      activeProjectName={selectedProject.name}
+      forcedIntent={forcedIntent}
+      onClearForcedIntent={() => setForcedIntent(null)}
+      value={inputContent}
+      onChange={setInputContent}
+    />
+  );
+
   return (
-    <div className="flex h-[calc(100vh-3.5rem)] overflow-hidden workspace-gradient-bg">
-      {/* Session Navigation Sidebar */}
+    <div className="flex h-[calc(100vh-3.5rem)] overflow-hidden workspace-gradient-bg relative">
+      {/* Slide-over Recent Conversations Drawer (On Demand, Not Permanent Sidebar) */}
       <SessionSidebar
+        isOpen={recentDrawerOpen}
+        onClose={() => setRecentDrawerOpen(false)}
         sessions={sessions}
         activeSessionId={activeSessionId}
         onSelectSession={handleSelectSession}
@@ -257,47 +299,11 @@ export default function ChatPage() {
         loading={loadingSessions}
       />
 
-      {/* Main Chat Pane */}
-      <div className="flex-1 flex flex-col h-full overflow-hidden">
-        {/* Chat Header */}
-        <div className="px-6 py-3 border-b border-white/[0.08] bg-[#101014]/90 backdrop-blur-md flex items-center justify-between flex-shrink-0 z-10">
-          <div>
-            <div className="flex items-center gap-2">
-              <h2 className="text-sm font-semibold text-[#F8F8FC]">
-                {activeSessionId ? `Session #${activeSessionId}` : "New Conversation"}
-              </h2>
-              <span className="text-[10px] px-2 py-0.5 rounded-full font-medium bg-[#20212B] text-[#8B7CFF] border border-white/[0.08]">
-                {selectedProject.name}
-              </span>
-            </div>
-            <p className="text-[11px] text-[#929292] mt-0.5">
-              LangGraph Multi-Agent Orchestrator (Direct Q&amp;A, Research Intelligence, Developer Intelligence)
-            </p>
-          </div>
-
-          <div className="flex items-center gap-2">
-            {activeSessionId && (
-              <button
-                onClick={() => setMemoryModalOpen(true)}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-white/[0.08] bg-[#20212B] hover:bg-[#262836] text-xs font-medium text-[#A4A6B8] hover:text-[#F8F8FC] shadow-sm transition-colors cursor-pointer"
-              >
-                <svg className="h-3.5 w-3.5 text-[#8B7CFF]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 19h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2zM9 9h6v6H9V9z"
-                  />
-                </svg>
-                <span>Memory Telemetry</span>
-              </button>
-            )}
-          </div>
-        </div>
-
+      {/* Main Single Unified Workspace */}
+      <div className="flex-1 flex flex-col h-full overflow-hidden min-w-0">
         {/* Error Banner */}
         {errorBanner && (
-          <div className="px-6 py-2.5 bg-rose-500/15 border-b border-rose-500/30 text-xs text-rose-300 flex items-center justify-between">
+          <div className="px-6 py-2.5 bg-rose-500/15 border-b border-rose-500/30 text-xs text-rose-300 flex items-center justify-between z-10 shrink-0">
             <span>{errorBanner}</span>
             <button
               onClick={() => setErrorBanner(null)}
@@ -308,76 +314,116 @@ export default function ChatPage() {
           </div>
         )}
 
-        {/* Messages Scroll Area */}
-        <div className="flex-1 overflow-y-auto px-4 sm:px-6 py-6">
-          {loadingMessages ? (
-            <div className="h-full flex items-center justify-center text-xs text-[#929292]">
-              <div className="flex items-center gap-2">
-                <svg className="animate-spin h-4 w-4 text-[#5146FF]" viewBox="0 0 24 24">
-                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
-                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
-                </svg>
-                <span>Loading session history...</span>
-              </div>
+        {/* Viewport Area */}
+        {loadingMessages ? (
+          <div className="flex-1 flex items-center justify-center text-xs text-[#929292]">
+            <div className="flex items-center gap-2">
+              <svg className="animate-spin h-4 w-4 text-[#5146FF]" viewBox="0 0 24 24">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
+              </svg>
+              <span>Loading session history...</span>
             </div>
-          ) : messages.length === 0 ? (
-            <HeroEmptyState onSelectPrompt={handleSelectPromptFromHero} />
-          ) : (
-            <div className="max-w-4xl mx-auto space-y-4">
-              {messages.map((msg, idx) => (
-                <MessageBubble
-                  key={msg.id ?? idx}
-                  message={msg}
-                  projectId={selectedProject.id}
-                  onRetry={msg.state === "failed" ? handleRetryLast : undefined}
-                />
-              ))}
+          </div>
+        ) : messages.length === 0 ? (
+          /* Authoritative Stitch Empty State Hero with Centered Composer */
+          <main className="flex-1 overflow-y-auto px-4 sm:px-8 py-6 sm:py-8 flex flex-col items-center">
+            <HeroEmptyState
+              onSelectPrompt={handleSelectPromptFromHero}
+              composer={composerElement}
+            />
+          </main>
+        ) : (
+          /* Active Conversation Thread View */
+          <>
+            {/* Minimal Sub-header: Clean Session Kicker & Memory Telemetry */}
+            <div className="px-4 sm:px-8 py-2.5 border-b border-white/[0.06] bg-[#101014]/60 backdrop-blur-md flex items-center justify-between shrink-0 z-10">
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setRecentDrawerOpen(true)}
+                  className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium text-[#A4A6B8] hover:text-[#F8F8FC] bg-[#20212B] hover:bg-[#262836] border border-white/[0.08] transition cursor-pointer"
+                  title="View conversation history"
+                >
+                  <svg className="w-3.5 h-3.5 text-[#8B7CFF]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                  </svg>
+                  <span>Recent Conversations ({sessions.length})</span>
+                </button>
+                <span className="text-xs text-[#929292] font-mono">
+                  {activeSessionId ? `Session #${activeSessionId}` : "Current Session"}
+                </span>
+              </div>
 
-              {isExecuting && (
-                <div className="flex justify-start mb-6">
-                  <div className="rounded-2xl bg-[#15151B] border border-white/[0.08] p-4 shadow-lg flex items-center gap-3">
-                    <svg className="animate-spin h-4 w-4 text-[#5146FF]" viewBox="0 0 24 24">
-                      <circle
-                        className="opacity-25"
-                        cx="12"
-                        cy="12"
-                        r="10"
-                        stroke="currentColor"
-                        strokeWidth="4"
-                        fill="none"
-                      />
+              <div className="flex items-center gap-2">
+                {activeSessionId && (
+                  <button
+                    type="button"
+                    onClick={() => setMemoryModalOpen(true)}
+                    className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md border border-white/[0.08] bg-[#20212B] hover:bg-[#262836] text-xs font-medium text-[#A4A6B8] hover:text-[#F8F8FC] shadow-sm transition-colors cursor-pointer"
+                  >
+                    <svg className="h-3.5 w-3.5 text-[#8B7CFF]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path
-                        className="opacity-75"
-                        fill="currentColor"
-                        d="M4 12a8 8 0 018-8v8H4z"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 19h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2zM9 9h6v6H9V9z"
                       />
                     </svg>
-                    <span className="text-xs text-[#A4A6B8] font-medium">
-                      Routing through LangGraph state machine...
-                    </span>
-                  </div>
-                </div>
-              )}
-
-              <div ref={messagesEndRef} />
+                    <span>Memory Telemetry</span>
+                  </button>
+                )}
+              </div>
             </div>
-          )}
-        </div>
 
-        {/* Message Input Footer */}
-        <div className="p-4 sm:p-5 border-t border-white/[0.08] bg-[#101014]/95 backdrop-blur-md flex-shrink-0">
-          <div className="max-w-4xl mx-auto">
-            <MessageInput
-              onSend={handleSendMessage}
-              disabled={isExecuting}
-              activeProjectName={selectedProject.name}
-              forcedIntent={forcedIntent}
-              onClearForcedIntent={() => setForcedIntent(null)}
-              value={inputContent}
-              onChange={setInputContent}
-            />
-          </div>
-        </div>
+            {/* Messages Scroll Area */}
+            <div className="flex-1 overflow-y-auto px-4 sm:px-6 py-6">
+              <div className="max-w-4xl mx-auto space-y-4">
+                {messages.map((msg, idx) => (
+                  <MessageBubble
+                    key={msg.id ?? idx}
+                    message={msg}
+                    projectId={selectedProject.id}
+                    onRetry={msg.state === "failed" ? handleRetryLast : undefined}
+                  />
+                ))}
+
+                {isExecuting && (
+                  <div className="flex justify-start mb-6">
+                    <div className="rounded-2xl bg-[#15151B] border border-white/[0.08] p-4 shadow-lg flex items-center gap-3">
+                      <svg className="animate-spin h-4 w-4 text-[#5146FF]" viewBox="0 0 24 24">
+                        <circle
+                          className="opacity-25"
+                          cx="12"
+                          cy="12"
+                          r="10"
+                          stroke="currentColor"
+                          strokeWidth="4"
+                          fill="none"
+                        />
+                        <path
+                          className="opacity-75"
+                          fill="currentColor"
+                          d="M4 12a8 8 0 018-8v8H4z"
+                        />
+                      </svg>
+                      <span className="text-xs text-[#A4A6B8] font-medium">
+                        Routing through LangGraph state machine...
+                      </span>
+                    </div>
+                  </div>
+                )}
+
+                <div ref={messagesEndRef} />
+              </div>
+            </div>
+
+            {/* Pinned Bottom Message Input Footer */}
+            <div className="p-4 sm:p-5 border-t border-white/[0.08] bg-[#101014]/95 backdrop-blur-md flex-shrink-0">
+              <div className="max-w-4xl mx-auto">{composerElement}</div>
+            </div>
+          </>
+        )}
       </div>
 
       {/* Memory Controls Modal */}

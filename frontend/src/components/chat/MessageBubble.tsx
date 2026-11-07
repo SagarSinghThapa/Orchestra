@@ -1,7 +1,8 @@
 "use client";
 
 import React, { useState } from "react";
-import { Message } from "@/types/chat";
+import { Message, ResearchResponse } from "@/types/chat";
+import { DeveloperResponse } from "@/types/developer";
 import { SafeMarkdown } from "./SafeMarkdown";
 import { AgentResponseCard } from "./AgentResponseCard";
 
@@ -65,8 +66,69 @@ export function MessageBubble({ message, projectId, onRetry }: MessageBubbleProp
     );
   }
 
-  // Assistant Bubble
-  const intent = message.intent;
+  // Assistant Bubble: Safe extraction & structured normalization
+  let effectiveDevResult = message.developer_result as DeveloperResponse | undefined;
+  let effectiveResearchResult = message.research_result as ResearchResponse | undefined;
+  let effectiveContent = message.content || "";
+  let derivedIntent = message.intent;
+
+  // Intercept raw structured JSON from historical or un-hydrated messages
+  if (typeof effectiveContent === "string") {
+    const trimmed = effectiveContent.trim();
+    if (trimmed.startsWith("{") && trimmed.endsWith("}")) {
+      try {
+        const parsed = JSON.parse(trimmed);
+        if (parsed && typeof parsed === "object") {
+          // Case 1: Developer response JSON
+          if (
+            "status" in parsed &&
+            ("summary" in parsed || "patches" in parsed || "proposed_patches" in parsed)
+          ) {
+            if (!effectiveDevResult) {
+              effectiveDevResult = {
+                status: parsed.status || "success",
+                task_type: parsed.task_type || "code_gen",
+                mode: parsed.mode || "preview",
+                summary: parsed.summary || "",
+                files_analyzed: parsed.files_analyzed || [],
+                proposed_patches: parsed.proposed_patches || parsed.patches || [],
+                documentation: parsed.documentation || null,
+                warnings: parsed.warnings || [],
+                tool_events: parsed.tool_events || [],
+                metadata: parsed.metadata || {},
+              };
+            }
+            if (!derivedIntent) derivedIntent = "developer";
+            // Do NOT render raw JSON in markdown!
+            effectiveContent = "";
+          }
+          // Case 2: Research response JSON
+          else if ("answer" in parsed && "citations" in parsed) {
+            if (!effectiveResearchResult) {
+              effectiveResearchResult = parsed as ResearchResponse;
+            }
+            if (!derivedIntent) derivedIntent = "research";
+            // Render the clean answer text rather than raw JSON
+            effectiveContent = parsed.answer || "";
+          }
+        }
+      } catch {
+        // Not valid JSON, keep as normal markdown
+      }
+    }
+  }
+
+  // If developer_result is already present, suppress duplicate raw JSON or duplicate summary text
+  if (effectiveDevResult && effectiveContent) {
+    const trimmed = effectiveContent.trim();
+    if (
+      trimmed === effectiveDevResult.summary?.trim() ||
+      (trimmed.startsWith("{") && trimmed.endsWith("}"))
+    ) {
+      effectiveContent = "";
+    }
+  }
+
   const executionTrace = message.execution_trace || [];
 
   return (
@@ -75,25 +137,25 @@ export function MessageBubble({ message, projectId, onRetry }: MessageBubbleProp
         {/* Intent Route Badge */}
         <div className="flex items-center justify-between gap-2 mb-3">
           <div className="flex items-center gap-2">
-            {intent === "direct_qa" && (
+            {derivedIntent === "direct_qa" && (
               <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-[#5146FF]/15 text-[#8B7CFF] border border-[#5146FF]/30">
                 <span className="h-1.5 w-1.5 rounded-full bg-[#5146FF]" />
                 Direct Q&A
               </span>
             )}
-            {intent === "research" && (
+            {derivedIntent === "research" && (
               <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
                 <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
                 Research Intelligence
               </span>
             )}
-            {intent === "developer" && (
+            {derivedIntent === "developer" && (
               <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-amber-500/15 text-amber-300 border border-amber-500/30">
                 <span className="h-1.5 w-1.5 rounded-full bg-amber-400" />
                 Developer Intelligence
               </span>
             )}
-            {!intent && (
+            {!derivedIntent && (
               <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-xs font-semibold bg-[#20212B] text-[#A4A6B8] border border-white/[0.08]">
                 Orchestra Assistant
               </span>
@@ -108,17 +170,17 @@ export function MessageBubble({ message, projectId, onRetry }: MessageBubbleProp
         </div>
 
         {/* Content */}
-        {message.content && (
+        {effectiveContent && (
           <div className="text-sm text-[#F5F5F5] leading-relaxed">
-            <SafeMarkdown content={message.content} />
+            <SafeMarkdown content={effectiveContent} />
           </div>
         )}
 
         {/* Structured Results Card */}
-        {(message.developer_result || message.research_result) && (
+        {(effectiveDevResult || effectiveResearchResult) && (
           <AgentResponseCard
-            developerResult={message.developer_result}
-            researchResult={message.research_result}
+            developerResult={effectiveDevResult}
+            researchResult={effectiveResearchResult}
             projectId={projectId}
           />
         )}

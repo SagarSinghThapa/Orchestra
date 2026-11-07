@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useRef, useEffect } from "react";
 import { useProject } from "@/features/projects/ProjectContext";
 import { CreateProjectModal } from "./CreateProjectModal";
 
@@ -8,10 +8,22 @@ export function ProjectSelector() {
   const { projects, selectedProject, selectProject, loading } = useProject();
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [modalOpen, setModalOpen] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!dropdownOpen) return;
+    const handleClickOutside = (e: MouseEvent) => {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+        setDropdownOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [dropdownOpen]);
 
   return (
     <>
-      <div className="relative flex items-center gap-2 sm:gap-3">
+      <div ref={containerRef} className="relative flex items-center gap-2 sm:gap-3">
         <button
           type="button"
           onClick={() => setDropdownOpen((prev) => !prev)}

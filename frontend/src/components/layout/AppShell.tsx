@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useAuth } from "@/features/auth/AuthContext";
@@ -13,6 +13,24 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const { user, logout } = useAuth();
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
+
+  const handleNewChat = useCallback(() => {
+    router.push("/chat");
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(new CustomEvent("orchestra-new-chat"));
+    }
+  }, [router]);
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        handleNewChat();
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [handleNewChat]);
 
   if (pathname === "/login") {
     return <>{children}</>;
@@ -74,24 +92,30 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       icon: (
         <svg className="w-4 h-4 shrink-0" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
           <circle cx="12" cy="12" r="3" />
-          <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
+          <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83-2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
         </svg>
       ),
     },
   ];
 
-  const handleNewChat = () => {
-    // If already on /chat, dispatch new chat event, otherwise route to /chat
-    router.push("/chat");
-    if (typeof window !== "undefined") {
-      window.dispatchEvent(new CustomEvent("orchestra-new-chat"));
+  const handleNavClick = (href: string, e: React.MouseEvent) => {
+    setMobileSidebarOpen(false);
+    if (href === "/chat") {
+      if (pathname === "/chat") {
+        e.preventDefault();
+        window.dispatchEvent(new CustomEvent("orchestra-toggle-recent-conversations"));
+      } else {
+        setTimeout(() => {
+          window.dispatchEvent(new CustomEvent("orchestra-open-recent-conversations"));
+        }, 100);
+      }
     }
   };
 
   return (
     <ProtectedRoute>
       <ProjectProvider>
-        <div className="flex h-screen w-full bg-[#101014] text-[#F5F5F5] font-sans antialiased overflow-hidden relative">
+        <div className="flex h-screen w-full bg-[#101014] text-[#F5F5F5] font-sans antialiased overflow-hidden relative selection:bg-[#5146FF]/30 selection:text-white">
           {/* Mobile Drawer Backdrop */}
           {mobileSidebarOpen && (
             <div
@@ -163,7 +187,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                     <Link
                       key={link.href}
                       href={link.href}
-                      onClick={() => setMobileSidebarOpen(false)}
+                      onClick={(e) => handleNavClick(link.href, e)}
                       className={`flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-[14px] font-medium transition group ${
                         isActive
                           ? "bg-[#202020] text-[#FFFFFF]"

@@ -4,6 +4,9 @@ import { render, screen, fireEvent, act } from "@testing-library/react";
 import { HeroEmptyState } from "@/components/chat/HeroEmptyState";
 import { MessageInput } from "@/components/chat/MessageInput";
 import { AgentResponseCard } from "@/components/chat/AgentResponseCard";
+import { MessageBubble } from "@/components/chat/MessageBubble";
+import { SessionSidebar } from "@/components/chat/SessionSidebar";
+import { Message } from "@/types/chat";
 
 // Mock next/navigation
 vi.mock("next/navigation", () => ({
@@ -13,14 +16,19 @@ vi.mock("next/navigation", () => ({
   }),
 }));
 
-describe("Wave 14.6.2: Stitch Chat Workspace & Presentation Layer", () => {
+describe("Wave 14.6.2 & Visual Reconcile: Stitch Chat Workspace & Presentation Layer", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
   });
 
-  it("HeroEmptyState renders exact Stitch headline, subtitle, task chips and 3 feature cards", () => {
+  it("HeroEmptyState renders exact Stitch headline, subtitle, task chips, composer and 3 feature cards", () => {
     const onSelectPrompt = vi.fn();
-    render(<HeroEmptyState onSelectPrompt={onSelectPrompt} />);
+    render(
+      <HeroEmptyState
+        onSelectPrompt={onSelectPrompt}
+        composer={<div data-testid="mock-composer">Composer In Center</div>}
+      />
+    );
 
     // Stitch headline
     expect(
@@ -31,6 +39,9 @@ describe("Wave 14.6.2: Stitch Chat Workspace & Presentation Layer", () => {
     expect(
       screen.getByRole("heading", { name: "Orchestra Autonomous Assistant" })
     ).toBeInTheDocument();
+
+    // Composer rendered in center
+    expect(screen.getByTestId("mock-composer")).toBeInTheDocument();
 
     // 6 Task suggestion chips
     expect(screen.getByRole("button", { name: /Research Assistant/i })).toBeInTheDocument();
@@ -121,5 +132,70 @@ describe("Wave 14.6.2: Stitch Chat Workspace & Presentation Layer", () => {
     // Click reveals confirmation prompt
     fireEvent.click(applyBtn);
     expect(screen.getByText(/Confirm Modification of Workspace Files\?/i)).toBeInTheDocument();
+  });
+
+  it("MessageBubble intercepts raw JSON strings and normalizes to structured AgentResponseCard", () => {
+    const rawJsonMessage: Message = {
+      id: 2,
+      role: "assistant",
+      content: '{"status":"success","summary":"Deployment smoke test developer task completed successfully.","patches":[]}',
+      created_at: new Date().toISOString(),
+    };
+
+    const { container } = render(
+      <MessageBubble message={rawJsonMessage} projectId={1} />
+    );
+
+    // Inviolable UX invariant: Raw JSON string is NEVER rendered as literal text in chat
+    expect(container.textContent).not.toContain('{"status":"success"');
+    expect(container.textContent).not.toContain('"patches":[]');
+
+    // Intercepted and rendered as structured summary and Developer Intelligence card
+    expect(screen.getByText("Developer Intelligence")).toBeInTheDocument();
+    expect(screen.getByText("Deployment smoke test developer task completed successfully.")).toBeInTheDocument();
+    expect(screen.getByText("SUCCESS")).toBeInTheDocument();
+    expect(screen.getByText("Dry-run Preview")).toBeInTheDocument();
+  });
+
+  it("SessionSidebar behaves as slide-over drawer with Escape and backdrop click dismiss", () => {
+    const onClose = vi.fn();
+    const onSelectSession = vi.fn();
+    const onNewChat = vi.fn();
+    const sessions = [
+      { id: 9, project_id: 1, type: "orchestrator", status: "active", created_at: new Date().toISOString() },
+    ];
+
+    const { rerender } = render(
+      <SessionSidebar
+        isOpen={false}
+        onClose={onClose}
+        sessions={sessions}
+        activeSessionId={9}
+        onSelectSession={onSelectSession}
+        onNewChat={onNewChat}
+      />
+    );
+
+    // Hidden when isOpen is false
+    expect(screen.queryByLabelText("Recent Conversations")).not.toBeInTheDocument();
+
+    // Renders drawer when isOpen is true
+    rerender(
+      <SessionSidebar
+        isOpen={true}
+        onClose={onClose}
+        sessions={sessions}
+        activeSessionId={9}
+        onSelectSession={onSelectSession}
+        onNewChat={onNewChat}
+      />
+    );
+
+    expect(screen.getByLabelText("Recent Conversations")).toBeInTheDocument();
+    expect(screen.getByText("Session #9")).toBeInTheDocument();
+
+    // Escape key triggers onClose
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(onClose).toHaveBeenCalled();
   });
 });
