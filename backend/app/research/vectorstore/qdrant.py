@@ -11,6 +11,31 @@ from app.research.exceptions import ConfigurationError, VectorStoreError
 _shared_memory_client: Optional[AsyncQdrantClient] = None
 
 
+def resolve_qdrant_collection_name(collection_name: Optional[str] = None) -> str:
+    """
+    Resolves the target Qdrant collection name ensuring vector-space isolation across providers.
+
+    Guarantees:
+    - Explicit collection_name overrides are strictly preserved.
+    - If provider is 'nvidia', generates dedicated collection:
+      '{base_collection}_nvidia_{clean_model}_{dimension}'
+      (e.g., 'orchestra_knowledge_nvidia_nemotron_35_embed_1b_2048').
+    - If provider is 'test' or standard 'openai_compatible', uses configured settings.qdrant_collection_name.
+    - Prevents accidental mixing of mock vectors and NVIDIA vectors.
+    """
+    if collection_name:
+        return collection_name
+
+    provider = (settings.embedding_provider or "").lower()
+    if provider == "nvidia":
+        raw_model = settings.embedding_model or "nvidia/nemotron-3.5-embed-1b"
+        clean_model = raw_model.split("/")[-1].replace("-", "_").replace(".", "")
+        dim = settings.embedding_dimension if settings.embedding_dimension != 1536 else 2048
+        return f"{settings.qdrant_collection_name}_nvidia_{clean_model}_{dim}"
+
+    return settings.qdrant_collection_name
+
+
 async def reset_shared_memory_client() -> None:
     """Closes and resets the shared in-memory Qdrant client."""
     global _shared_memory_client
@@ -43,7 +68,7 @@ class QdrantVectorStore:
         self._location = location
         self.url = url or settings.qdrant_url
         self.api_key = api_key or settings.qdrant_api_key
-        self.collection_name = collection_name or settings.qdrant_collection_name
+        self.collection_name = resolve_qdrant_collection_name(collection_name)
 
     async def _get_client(self) -> AsyncQdrantClient:
         global _shared_memory_client
