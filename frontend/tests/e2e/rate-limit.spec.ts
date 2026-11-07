@@ -94,7 +94,7 @@ test.describe('Rate Limiting Enforcement & Cooldown UX E2E', () => {
     await expect(page.getByRole('heading', { name: 'Orchestra Autonomous Assistant' })).toBeVisible();
 
     // Intercept chat orchestration call to return 429 with Retry-After: 3
-    await page.route('**/projects/*/orchestrate', async (route) => {
+    await page.route(/\/projects\/[^/]+\/orchestrate/, async (route) => {
       await route.fulfill({
         status: 429,
         contentType: 'application/json',

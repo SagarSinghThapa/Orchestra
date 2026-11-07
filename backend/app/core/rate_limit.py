@@ -59,7 +59,7 @@ ROUTE_RULES: List[Tuple[re.Pattern, str, str, RouteClass]] = [
     (re.compile(r"^/projects/[^/]+/developer$"), "POST", "/projects/{project_id}/developer", RouteClass.DEVELOPER),
 
     # Orchestrator Subgraph
-    (re.compile(r"^/projects/[^/]+/orchestrate(?:/sessions/[^/]+)?$"), "POST", "/projects/{project_id}/orchestrate", RouteClass.ORCHESTRATOR),
+    (re.compile(r"^/projects/[^/]+/orchestrate(?:/sessions/[^/]+)?(?:/stream)?$"), "POST", "/projects/{project_id}/orchestrate", RouteClass.ORCHESTRATOR),
 
     # Memory Subsystem
     (re.compile(r"^/projects/[^/]+/sessions/[^/]+/memory/rebuild$"), "POST", "/projects/{project_id}/sessions/{session_id}/memory/rebuild", RouteClass.MEMORY_REBUILD),

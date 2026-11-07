@@ -3,7 +3,7 @@ import json
 import logging
 import random
 import time
-from typing import Optional, Type, TypeVar
+from typing import AsyncIterator, Optional, Type, TypeVar
 from urllib.parse import urlparse
 import httpx
 from pydantic import BaseModel, ValidationError
@@ -229,6 +229,80 @@ class OpenAICompatibleLLMProvider(LLMProvider):
             max_tokens=max_tokens,
             temperature=temperature,
         )
+
+    async def stream_text(
+        self,
+        prompt: str,
+        system_prompt: Optional[str] = None,
+        max_tokens: Optional[int] = None,
+        temperature: float = 0.0,
+    ) -> AsyncIterator[str]:
+        messages = []
+        if system_prompt:
+            messages.append({"role": "system", "content": system_prompt})
+        messages.append({"role": "user", "content": prompt})
+
+        headers = {"Content-Type": "application/json"}
+        if self.api_key:
+            headers["Authorization"] = f"Bearer {self.api_key}"
+
+        payload: dict = {
+            "model": self.model,
+            "messages": messages,
+            "temperature": temperature,
+            "max_tokens": max_tokens or self.max_tokens,
+            "stream": True,
+        }
+
+        endpoint = f"{self.base_url}/chat/completions"
+        host = urlparse(self.base_url).netloc or "unknown-host"
+
+        client = self._client or httpx.AsyncClient(timeout=self.timeout)
+        close_client = self._client is None
+        try:
+            async with client.stream(
+                "POST", endpoint, json=payload, headers=headers, timeout=self.timeout
+            ) as response:
+                if response.status_code in (401, 403):
+                    raise AuthenticationError(
+                        f"AI Provider authentication failed with HTTP status {response.status_code}: Invalid or unauthorized API key"
+                    )
+                elif response.status_code == 429:
+                    raise RateLimitError(
+                        f"AI Provider rate limit exceeded with HTTP status 429"
+                    )
+                elif response.status_code >= 400:
+                    raise ResearchPipelineError(
+                        f"AI Provider stream error: HTTP status {response.status_code}"
+                    )
+
+                async for line in response.aiter_lines():
+                    trimmed = line.strip()
+                    if not trimmed:
+                        continue
+                    if trimmed.startswith("data:"):
+                        raw_data = trimmed[5:].strip()
+                        if raw_data == "[DONE]":
+                            break
+                        try:
+                            chunk = json.loads(raw_data)
+                            choices = chunk.get("choices", [])
+                            if choices:
+                                delta = choices[0].get("delta", {})
+                                content = delta.get("content")
+                                if content:
+                                    yield content
+                        except json.JSONDecodeError:
+                            continue
+        except httpx.TimeoutException as exc:
+            logger.warning("LLM stream timed out for host=%s, model=%s: %s", host, self.model, exc)
+            raise LLMTimeoutError(f"LLM stream timed out after {self.timeout}s: {exc}") from exc
+        except httpx.RequestError as exc:
+            logger.warning("LLM stream network error for host=%s, model=%s: %s", host, self.model, exc)
+            raise ResearchPipelineError(f"LLM stream network connection error: {exc}") from exc
+        finally:
+            if close_client:
+                await client.aclose()
 
     async def generate_structured(
         self,

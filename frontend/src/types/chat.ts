@@ -1,5 +1,5 @@
 export type MessageRole = "user" | "assistant" | "tool" | "system";
-export type MessageDeliveryState = "sending" | "confirmed" | "failed";
+export type MessageDeliveryState = "sending" | "streaming" | "confirmed" | "failed";
 
 export type IntentType = "research" | "developer" | "direct_qa";
 
@@ -53,6 +53,7 @@ export interface Message {
   content: string;
   created_at?: string;
   state?: MessageDeliveryState;
+  status_text?: string;
   intent?: IntentType;
   research_result?: ResearchResponse | null;
   developer_result?: unknown | null;

@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import Optional, Protocol, Type, TypeVar, runtime_checkable
+from typing import AsyncIterator, Optional, Protocol, Type, TypeVar, runtime_checkable
 from pydantic import BaseModel
 
 T = TypeVar("T", bound=BaseModel)
@@ -20,7 +20,7 @@ class LLMResponse:
 
 @runtime_checkable
 class LLMProvider(Protocol):
-    """Protocol defining the interface for LLM text and structured generation."""
+    """Protocol defining the interface for LLM text, streaming, and structured generation."""
 
     async def generate_text(
         self,
@@ -30,6 +30,16 @@ class LLMProvider(Protocol):
         temperature: float = 0.0,
     ) -> str:
         """Generate unstructured prose response for prompt."""
+        ...
+
+    async def stream_text(
+        self,
+        prompt: str,
+        system_prompt: Optional[str] = None,
+        max_tokens: Optional[int] = None,
+        temperature: float = 0.0,
+    ) -> AsyncIterator[str]:
+        """Stream unstructured prose response chunks for prompt."""
         ...
 
     async def generate_structured(

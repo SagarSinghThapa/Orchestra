@@ -201,6 +201,135 @@ class ApiAdapter {
   delete<T = unknown>(endpoint: string, options: RequestInit = {}): Promise<T> {
     return this.request<T>(endpoint, { ...options, method: "DELETE" });
   }
+
+  async stream(
+    endpoint: string,
+    payload: unknown,
+    options?: {
+      signal?: AbortSignal;
+      onEvent?: (event: { event: string; data: unknown }) => void;
+    }
+  ): Promise<void> {
+    const baseUrl = getBaseUrl();
+    const normalizedEndpoint = endpoint.startsWith("/") ? endpoint : `/${endpoint}`;
+    const url = endpoint.startsWith("http")
+      ? endpoint
+      : baseUrl
+        ? `${baseUrl}${normalizedEndpoint}`
+        : normalizedEndpoint;
+
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+      "X-Orchestra-Request": "true",
+      Accept: "text/event-stream",
+    };
+
+    const response = await fetch(url, {
+      method: "POST",
+      headers,
+      body: JSON.stringify(payload),
+      credentials: "include",
+      signal: options?.signal,
+    });
+
+    if (!response.ok) {
+      let errorData: Record<string, unknown> | null = null;
+      try {
+        errorData = await response.json();
+      } catch {
+        // Response body was not JSON
+      }
+
+      const requestId = response.headers?.get ? response.headers.get("x-request-id") || undefined : undefined;
+
+      if (response.status === 429) {
+        const rawRetryAfter = response.headers?.get ? response.headers.get("retry-after") : null;
+        const parsedRetry = rawRetryAfter ? parseInt(rawRetryAfter, 10) : NaN;
+        const retryAfter = !isNaN(parsedRetry) && parsedRetry > 0 ? parsedRetry : undefined;
+
+        const message =
+          (typeof errorData?.detail === "string" ? errorData.detail : null) ||
+          (retryAfter
+            ? `Too many requests. Please try again in ${retryAfter} seconds.`
+            : "Too many requests. Please wait a moment and try again.");
+
+        throw new ApiError(429, message, errorData?.detail || errorData, retryAfter, requestId);
+      }
+
+      const message =
+        (typeof errorData?.detail === "string" ? errorData.detail : null) ||
+        (typeof errorData?.message === "string" ? errorData.message : null) ||
+        `Stream request failed with status ${response.status}`;
+
+      throw new ApiError(response.status, message, errorData?.detail || errorData, undefined, requestId);
+    }
+
+    const contentType = response.headers.get("content-type") || "";
+    if (contentType.includes("application/json")) {
+      const data = await response.json();
+      if (data?.session_id) {
+        options?.onEvent?.({ event: "session", data: { session_id: data.session_id } });
+      }
+      if (data?.intent) {
+        options?.onEvent?.({ event: "intent", data: { intent: data.intent } });
+      }
+      if (data?.answer) {
+        options?.onEvent?.({ event: "text_delta", data: { delta: data.answer } });
+      }
+      if (data?.research_result) {
+        options?.onEvent?.({ event: "research_result", data: data.research_result });
+      }
+      if (data?.developer_result) {
+        options?.onEvent?.({ event: "developer_result", data: data.developer_result });
+      }
+      options?.onEvent?.({ event: "done", data });
+      return;
+    }
+
+    if (!response.body) {
+      throw new ApiError(500, "ReadableStream not supported by browser environment.");
+    }
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+
+    try {
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const parts = buffer.split("\n\n");
+        buffer = parts.pop() || "";
+
+        for (const part of parts) {
+          const lines = part.split("\n");
+          let eventType = "message";
+          let dataStr = "";
+
+          for (const line of lines) {
+            if (line.startsWith("event:")) {
+              eventType = line.slice(6).trim();
+            } else if (line.startsWith("data:")) {
+              dataStr += line.slice(5).trim();
+            }
+          }
+
+          if (dataStr) {
+            try {
+              const data = JSON.parse(dataStr);
+              options?.onEvent?.({ event: eventType, data });
+            } catch {
+              options?.onEvent?.({ event: eventType, data: dataStr });
+            }
+          }
+        }
+      }
+    } finally {
+      reader.releaseLock();
+    }
+  }
 }
 
 export const api = new ApiAdapter();

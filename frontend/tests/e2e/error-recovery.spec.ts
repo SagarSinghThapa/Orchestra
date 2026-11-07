@@ -40,7 +40,7 @@ test.describe('Error Recovery, Request ID Surfacing & Chat Retry E2E', () => {
     const simulatedRequestId = 'req_e2e_recovery_test_98765';
 
     // Intercept orchestration call with a 500 error containing correlation request ID
-    await page.route('**/projects/*/orchestrate', async (route) => {
+    await page.route(/\/projects\/[^/]+\/orchestrate/, async (route) => {
       await route.fulfill({
         status: 500,
         contentType: 'application/json',
@@ -82,7 +82,7 @@ test.describe('Error Recovery, Request ID Surfacing & Chat Retry E2E', () => {
     let failFirstCall = true;
 
     // Route that fails the first time, then succeeds on retry
-    await page.route('**/projects/*/orchestrate', async (route) => {
+    await page.route(/\/projects\/[^/]+\/orchestrate/, async (route) => {
       if (failFirstCall) {
         failFirstCall = false;
         await route.fulfill({

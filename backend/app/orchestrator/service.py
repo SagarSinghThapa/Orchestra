@@ -1,10 +1,13 @@
 import asyncio
 import logging
 import time
-from typing import Any, Dict, Optional
+from typing import Any, AsyncIterator, Dict, Optional
 from sqlalchemy.orm import Session
 
 from app.core.checkpoints import PostgresSaver
+from app.developer.logging import scrub_secrets
+from app.developer.schemas import DeveloperMode, DeveloperRequest, DeveloperResponse, TaskType
+from app.developer.services.developer_service import DeveloperService
 from app.memory.context_assembler import ContextAssembler
 from app.memory.summarizer import SummarizerService
 from app.models.session import Session as SessionModel
@@ -20,10 +23,8 @@ from app.orchestrator.schemas import (
 )
 from app.research.llm.base import LLMProvider
 from app.research.llm.provider import get_llm_provider
-from app.research.schemas import ResearchResponse
+from app.research.schemas import ResearchRequest, ResearchResponse
 from app.research.services.research_service import ResearchService
-from app.developer.schemas import DeveloperResponse
-from app.developer.services.developer_service import DeveloperService
 
 logger = logging.getLogger("orchestrator.service")
 
@@ -242,3 +243,232 @@ class OrchestratorService:
             sess_id = session.id if session else "unknown"
             logger.error("Global request deadline exceeded (%.1fs) for project %s", self.timeout_seconds, project_id)
             raise TimeoutError(f"Request {sess_id} exceeded global deadline of {self.timeout_seconds}s") from exc
+
+    async def orchestrate_stream(
+        self,
+        project_id: int,
+        request: OrchestratorRequest,
+        current_user_id: Optional[int] = None,
+    ) -> AsyncIterator[dict]:
+        """
+        Executes unified streaming orchestration workflow:
+          1. Resolves or creates Session record and logs inbound user Message record.
+          2. Emits session and status events over Server-Sent Events.
+          3. Assembles bounded memory context.
+          4. Classifies intent and routes to subgraphs or Direct QA.
+          5. Streams real-time text chunks, structured payloads, and traces.
+          6. Persists single assistant Message record per turn to PostgreSQL.
+          7. Runs incremental summarization (budget <= 5).
+          8. Emits final 'done' event.
+        """
+        start_time = time.perf_counter()
+        session: Optional[SessionModel] = None
+        accumulated_text = ""
+        total_calls = 0
+
+        try:
+            # 1. Resolve or create Session
+            if request.session_id is not None:
+                session = (
+                    self.db.query(SessionModel)
+                    .filter(SessionModel.id == request.session_id, SessionModel.project_id == project_id)
+                    .first()
+                )
+                if not session:
+                    raise ValueError(f"Session {request.session_id} not found in project {project_id}")
+            else:
+                title_text = (request.prompt[:47] + "...") if len(request.prompt) > 50 else request.prompt
+                session = SessionModel(
+                    project_id=project_id,
+                    type="orchestrator",
+                    title=title_text,
+                    query=request.prompt,
+                    status="pending",
+                )
+                self.db.add(session)
+                self.db.commit()
+                self.db.refresh(session)
+
+            # 2. Record user message
+            user_message = MessageModel(
+                session_id=session.id,
+                role="user",
+                content=request.prompt,
+            )
+            self.db.add(user_message)
+            self.db.commit()
+
+            # Emit session created/adopted event
+            yield {"event": "session", "data": {"session_id": session.id}}
+            yield {"event": "status", "data": {"status": "Analyzing request & assembling context..."}}
+
+            # 3. Assemble memory context (0 LLM calls, hard capped)
+            memory_str: Optional[str] = None
+            if self.context_assembler:
+                try:
+                    ctx = self.context_assembler.assemble(session_id=session.id, project_id=project_id)
+                    formatted = self.context_assembler.format_for_prompt(ctx)
+                    if formatted.strip():
+                        memory_str = formatted
+                except Exception as exc:
+                    logger.warning("Memory context assembly failed (non-fatal): %s", exc)
+
+            # 4. Classify intent
+            forced_val = request.forced_intent.value if request.forced_intent else None
+            forced_intent = IntentType(forced_val) if forced_val else None
+
+            classification = await self.classifier.classify(request.prompt, forced_intent=forced_intent)
+            total_calls += 1
+            intent = classification.intent
+            intent_str = intent.value
+
+            yield {"event": "intent", "data": {"intent": intent_str}}
+
+            execution_trace = [f"classify_intent:{intent_str}"]
+            research_result = None
+            developer_result = None
+
+            # 5. Route by intent
+            if intent == IntentType.RESEARCH:
+                execution_trace.append("research_subgraph:start")
+                yield {"event": "status", "data": {"status": "Searching knowledge base & retrieving evidence..."}}
+                r_params = request.research_params or {}
+                req = ResearchRequest(
+                    question=request.prompt,
+                    max_subqueries=r_params.get("max_subqueries", 3),
+                    max_evidence=r_params.get("max_evidence", 10),
+                    response_depth=r_params.get("response_depth", "standard"),
+                )
+                resp = await self.research_service.research(project_id=project_id, request=req)
+                total_calls += 1
+                execution_trace.append(f"research_subgraph:completed:{resp.status.value}")
+                research_result = resp.model_dump()
+                yield {"event": "research_result", "data": research_result}
+
+                # Stream the verified answer text
+                yield {"event": "status", "data": {"status": "Rendering verified findings..."}}
+                accumulated_text = resp.answer
+                words = accumulated_text.split(" ")
+                for i, word in enumerate(words):
+                    chunk = word + (" " if i < len(words) - 1 else "")
+                    yield {"event": "text_delta", "data": {"delta": chunk}}
+                    await asyncio.sleep(0.01)
+
+            elif intent == IntentType.DEVELOPER:
+                execution_trace.append("developer_subgraph:start")
+                yield {"event": "status", "data": {"status": "Analyzing repository workspace..."}}
+                d_params = request.developer_params or {}
+                raw_task = d_params.get("task_type", TaskType.CODE_GEN.value)
+                task_type = TaskType(raw_task) if isinstance(raw_task, str) else raw_task
+                raw_mode = d_params.get("mode", DeveloperMode.PREVIEW.value)
+                mode = DeveloperMode(raw_mode) if isinstance(raw_mode, str) else raw_mode
+
+                d_req = DeveloperRequest(
+                    task_type=task_type,
+                    prompt=request.prompt,
+                    mode=mode,
+                    target_files=d_params.get("target_files"),
+                    expected_file_hashes=d_params.get("expected_file_hashes"),
+                    context_hints=d_params.get("context_hints"),
+                )
+                resp = await self.developer_service.execute_task(project_id=project_id, request=d_req)
+                total_calls += 1
+                execution_trace.append(f"developer_subgraph:completed:{resp.status.value}")
+                developer_result = resp.model_dump()
+                yield {"event": "developer_result", "data": developer_result}
+
+                ans = resp.summary or (resp.documentation if resp.documentation else "Developer task completed.")
+                accumulated_text = ans
+                words = ans.split(" ")
+                for i, word in enumerate(words):
+                    chunk = word + (" " if i < len(words) - 1 else "")
+                    yield {"event": "text_delta", "data": {"delta": chunk}}
+                    await asyncio.sleep(0.01)
+
+            else:  # DIRECT_QA
+                execution_trace.append("direct_qa:start")
+                yield {"event": "status", "data": {"status": "Generating response..."}}
+                total_calls += 1
+                async for chunk in self.direct_qa_engine.answer_stream(request.prompt, context=memory_str):
+                    accumulated_text += chunk
+                    yield {"event": "text_delta", "data": {"delta": chunk}}
+                execution_trace.append("direct_qa:completed")
+
+            execution_trace.append("synthesize_output:finalized")
+
+            # 6. Finalize turn and persist assistant message (Single message in DB!)
+            session.status = "completed"
+            self.db.commit()
+
+            final_answer = scrub_secrets(accumulated_text.strip())
+            assistant_message = MessageModel(
+                session_id=session.id,
+                role="assistant",
+                content=final_answer,
+            )
+            self.db.add(assistant_message)
+            self.db.commit()
+
+            # 7. Post-Turn Incremental Summarization
+            if self.summarizer and (total_calls + 1 <= 5):
+                try:
+                    async with asyncio.timeout(15.0):
+                        summary_res = await self.summarizer.maybe_summarize(
+                            session_id=session.id,
+                            project_id=project_id,
+                        )
+                        if summary_res:
+                            total_calls += 1
+                except Exception as exc:
+                    logger.warning("Post-turn summarization failed or skipped (non-fatal): %s", exc)
+
+            duration_ms = (time.perf_counter() - start_time) * 1000.0
+
+            # 8. Emit final done event
+            yield {
+                "event": "done",
+                "data": {
+                    "session_id": session.id,
+                    "intent": intent_str,
+                    "answer": final_answer,
+                    "research_result": research_result,
+                    "developer_result": developer_result,
+                    "execution_trace": execution_trace,
+                    "metadata": {
+                        "duration_ms": duration_ms,
+                        "thread_id": PostgresSaver.format_thread_id(project_id, session.id),
+                        "llm_calls_made": total_calls,
+                    },
+                },
+            }
+
+        except asyncio.CancelledError:
+            logger.info("Stream cancelled by client (session_id=%s)", session.id if session else "unknown")
+            if session is not None:
+                if accumulated_text.strip():
+                    final_answer = scrub_secrets(accumulated_text.strip())
+                    assistant_message = MessageModel(
+                        session_id=session.id,
+                        role="assistant",
+                        content=final_answer,
+                    )
+                    self.db.add(assistant_message)
+                    session.status = "completed"
+                else:
+                    session.status = "cancelled"
+                try:
+                    self.db.commit()
+                except Exception:
+                    self.db.rollback()
+            raise
+        except Exception as exc:
+            clean_err = scrub_secrets(str(exc))
+            logger.error("Error in orchestrate_stream: %s", clean_err)
+            if session is not None:
+                session.status = "failed"
+                try:
+                    self.db.commit()
+                except Exception:
+                    self.db.rollback()
+            yield {"event": "error", "data": {"detail": clean_err}}
+

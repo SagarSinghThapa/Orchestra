@@ -1,5 +1,5 @@
 import logging
-from typing import Optional
+from typing import AsyncIterator, Optional
 
 from app.developer.logging import scrub_secrets
 from app.orchestrator.prompts import DIRECT_QA_SYSTEM_PROMPT, build_direct_qa_prompt
@@ -36,3 +36,27 @@ class DirectQAEngine:
             clean_err = scrub_secrets(str(e))
             logger.error(f"Direct Q&A synthesis error: {clean_err}")
             raise
+
+    async def answer_stream(self, prompt: str, context: Optional[str] = None) -> AsyncIterator[str]:
+        """
+        Streams an immediate answer to a conversational or conceptual inquiry.
+        """
+        logger.info("Executing Direct Q&A streaming synthesis (0 tools, max 1 LLM call)")
+        formatted_prompt = build_direct_qa_prompt(prompt, context=context or "")
+
+        try:
+            if hasattr(self.llm_provider, "stream_text"):
+                async for chunk in self.llm_provider.stream_text(
+                    prompt=formatted_prompt,
+                    system_prompt=DIRECT_QA_SYSTEM_PROMPT,
+                    temperature=0.2,
+                ):
+                    yield chunk
+            else:
+                ans = await self.answer(prompt, context=context)
+                yield ans
+        except Exception as e:
+            clean_err = scrub_secrets(str(e))
+            logger.error(f"Direct Q&A streaming synthesis error: {clean_err}")
+            raise
+

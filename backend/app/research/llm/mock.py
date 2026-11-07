@@ -1,5 +1,6 @@
+import asyncio
 import re
-from typing import Optional, Type, TypeVar
+from typing import AsyncIterator, Optional, Type, TypeVar
 from pydantic import BaseModel
 
 from app.research.exceptions import ResearchPipelineError
@@ -35,6 +36,19 @@ class DeterministicTestLLMProvider(LLMProvider):
             raise ResearchPipelineError("LLM request timed out after 20.0s")
 
         return f"Deterministic response to: {prompt[:50]}"
+
+    async def stream_text(
+        self,
+        prompt: str,
+        system_prompt: Optional[str] = None,
+        max_tokens: Optional[int] = None,
+        temperature: float = 0.0,
+    ) -> AsyncIterator[str]:
+        text = await self.generate_text(prompt, system_prompt, max_tokens, temperature)
+        words = text.split(" ")
+        for i, word in enumerate(words):
+            yield word + (" " if i < len(words) - 1 else "")
+            await asyncio.sleep(0.005)
 
     async def generate_structured(
         self,

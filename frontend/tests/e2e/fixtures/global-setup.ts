@@ -33,6 +33,8 @@ export default async function globalSetup() {
   const bootstrapScript = path.resolve(__dirname, 'bootstrap_test_db.py');
   const pythonExec = getPythonExecutable();
 
+  const dbPath = path.resolve(repoRoot, 'test-results/orchestra_e2e.db').replace(/\\/g, '/');
+
   console.log(`[Global Setup] Bootstrapping isolated E2E test database with ${pythonExec}...`);
   execSync(`"${pythonExec}" "${bootstrapScript}"`, {
     cwd: repoRoot,
@@ -40,6 +42,7 @@ export default async function globalSetup() {
     env: {
       ...process.env,
       ENVIRONMENT: 'test',
+      DATABASE_URL: `sqlite:///${dbPath}`,
     },
   });
   console.log('[Global Setup] Database ready.');

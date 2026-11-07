@@ -104,5 +104,27 @@ test.describe('Conversational Memory & Multi-Turn Chat E2E', () => {
     // Verify original chat message remains completely intact on the screen
     await expect(page.getByText('Initiating conversation for memory telemetry testing.')).toBeVisible();
   });
+
+  test('smooth real-time response streaming and single-message persistence', async ({ page }) => {
+    await page.goto('/chat');
+    await expect(page.getByRole('heading', { name: 'Orchestra Autonomous Assistant' })).toBeVisible();
+
+    const input = page.getByRole('textbox');
+    await input.fill('Explain the consensus algorithm in detail.');
+    await page.getByRole('button', { name: 'Send' }).click();
+
+    // Verify streaming indicator appears during generation or content becomes visible
+    await expect(page.locator('.prose, [data-testid="message-content"]').first()).toBeVisible({ timeout: 30000 });
+
+    // Verify the streaming cursor disappears once complete
+    await expect(page.locator('[aria-hidden="true"]:has-text("▍")')).not.toBeVisible({ timeout: 15000 });
+
+    // Invariant: Exactly one user message and one assistant message bubble
+    const userBubbles = page.getByTestId('user-message-bubble');
+    await expect(userBubbles).toHaveCount(1);
+
+    const assistantBubbles = page.getByTestId('assistant-message-bubble');
+    await expect(assistantBubbles).toHaveCount(1);
+  });
 });
 

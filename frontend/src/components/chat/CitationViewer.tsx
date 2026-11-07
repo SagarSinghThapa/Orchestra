@@ -59,8 +59,9 @@ export function CitationViewer({ researchResult }: CitationViewerProps) {
                   title={`${c.document_filename} (Page ${c.page_number})`}
                 >
                   <span className="font-bold text-[#8B7CFF]">[{idx + 1}]</span>
-                  <span className="truncate max-w-[120px]">{c.document_filename}</span>
-                  <span className="text-[10px] opacity-75">p.{c.page_number}</span>
+                  <span className="truncate max-w-[130px]">{c.document_filename}</span>
+                  <span className="text-[#929292]">·</span>
+                  <span className="text-[11px] text-[#A4A6B8]">p. {c.page_number}</span>
                 </button>
               );
             })}

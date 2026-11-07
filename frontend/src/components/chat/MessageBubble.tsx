@@ -19,7 +19,7 @@ export function MessageBubble({ message, projectId, onRetry }: MessageBubbleProp
 
   if (isUser) {
     return (
-      <div className="flex justify-end mb-4">
+      <div data-testid="user-message-bubble" className="flex justify-end mb-4">
         <div className="max-w-[75%] rounded-2xl bg-[#5146FF] text-white px-4.5 py-3 shadow-md">
           <p className="text-sm whitespace-pre-wrap break-words leading-relaxed">{message.content}</p>
           <div className="flex items-center justify-end gap-1.5 mt-1.5 text-[10px] text-white/70">
@@ -132,7 +132,7 @@ export function MessageBubble({ message, projectId, onRetry }: MessageBubbleProp
   const executionTrace = message.execution_trace || [];
 
   return (
-    <div className="flex justify-start mb-6">
+    <div data-testid="assistant-message-bubble" className="flex justify-start mb-6">
       <div className="w-full max-w-[90%] sm:max-w-[85%] rounded-2xl bg-[#15151B] border border-white/[0.08] p-5 shadow-lg">
         {/* Intent Route Badge */}
         <div className="flex items-center justify-between gap-2 mb-3">
@@ -169,10 +169,29 @@ export function MessageBubble({ message, projectId, onRetry }: MessageBubbleProp
           )}
         </div>
 
+        {/* Status / Loading while streaming before content arrives */}
+        {message.state === "streaming" && !effectiveContent && (
+          <div className="flex items-center gap-2.5 py-1 text-xs text-[#A4A6B8]">
+            <svg className="animate-spin h-3.5 w-3.5 text-[#5146FF]" viewBox="0 0 24 24">
+              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
+            </svg>
+            <span>{message.status_text || "Synthesizing response..."}</span>
+          </div>
+        )}
+
         {/* Content */}
         {effectiveContent && (
           <div className="text-sm text-[#F5F5F5] leading-relaxed">
             <SafeMarkdown content={effectiveContent} />
+            {message.state === "streaming" && (
+              <span
+                className="inline-block w-2 h-4 ml-0.5 bg-[#5146FF] animate-pulse align-middle motion-reduce:animate-none"
+                aria-hidden="true"
+              >
+                ▍
+              </span>
+            )}
           </div>
         )}
 

@@ -7,7 +7,19 @@ import { MessageBubble } from "@/components/chat/MessageBubble";
 import { MessageInput } from "@/components/chat/MessageInput";
 import { MemoryModal } from "@/components/chat/MemoryModal";
 import { HeroEmptyState } from "@/components/chat/HeroEmptyState";
-import { IntentType, Message, OrchestratorRequest, OrchestratorResponse, SessionItem } from "@/types/chat";
+import { IntentType, Message, OrchestratorRequest, ResearchResponse, SessionItem } from "@/types/chat";
+
+interface StreamEventPayload {
+  session_id?: number;
+  status?: string;
+  intent?: IntentType;
+  delta?: string;
+  answer?: string;
+  research_result?: ResearchResponse | null;
+  developer_result?: unknown;
+  execution_trace?: string[];
+  detail?: string;
+}
 import { api } from "@/services/apiClient";
 
 export default function ChatPage() {
@@ -23,21 +35,50 @@ export default function ChatPage() {
   const [forcedIntent, setForcedIntent] = useState<IntentType | null>(null);
   const [inputContent, setInputContent] = useState<string>("");
   const [recentDrawerOpen, setRecentDrawerOpen] = useState<boolean>(false);
+  const [showJumpToBottom, setShowJumpToBottom] = useState<boolean>(false);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const isNearBottomRef = useRef<boolean>(true);
   const skipFetchSessionIdRef = useRef<number | null>(null);
+  const abortControllerRef = useRef<AbortController | null>(null);
 
-  const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  const scrollToBottom = useCallback((smooth = true) => {
+    if (scrollContainerRef.current) {
+      scrollContainerRef.current.scrollTo({
+        top: scrollContainerRef.current.scrollHeight,
+        behavior: smooth ? "smooth" : "auto",
+      });
+    } else {
+      messagesEndRef.current?.scrollIntoView({ behavior: smooth ? "smooth" : "auto" });
+    }
+  }, []);
+
+  const handleScroll = () => {
+    if (!scrollContainerRef.current) return;
+    const { scrollTop, scrollHeight, clientHeight } = scrollContainerRef.current;
+    const distanceFromBottom = scrollHeight - scrollTop - clientHeight;
+    const isNear = distanceFromBottom < 100;
+    isNearBottomRef.current = isNear;
+    setShowJumpToBottom(!isNear);
   };
 
-  useEffect(() => {
-    scrollToBottom();
-  }, [messages, isExecuting]);
+  const handleStopGenerating = useCallback(() => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+      abortControllerRef.current = null;
+    }
+    setIsExecuting(false);
+  }, []);
 
   // Global custom event listeners for sidebar actions
   useEffect(() => {
     const handleNewChatEvent = () => {
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+        abortControllerRef.current = null;
+      }
+      setIsExecuting(false);
       skipFetchSessionIdRef.current = null;
       setActiveSessionId(null);
       setMessages([]);
@@ -57,6 +98,9 @@ export default function ChatPage() {
       window.removeEventListener("orchestra-new-chat", handleNewChatEvent);
       window.removeEventListener("orchestra-toggle-recent-conversations", handleToggleDrawer);
       window.removeEventListener("orchestra-open-recent-conversations", handleOpenDrawer);
+      if (abortControllerRef.current) {
+        abortControllerRef.current.abort();
+      }
     };
   }, []);
 
@@ -66,9 +110,15 @@ export default function ChatPage() {
       return;
     }
 
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+      abortControllerRef.current = null;
+    }
+
     let active = true;
     const fetchSessions = async () => {
       setLoadingSessions(true);
+      setIsExecuting(false);
       try {
         const data = await api.get<SessionItem[]>(`/sessions/project/${selectedProject.id}`);
         if (active) {
@@ -105,9 +155,15 @@ export default function ChatPage() {
       return;
     }
 
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+      abortControllerRef.current = null;
+    }
+
     let active = true;
     const fetchHistory = async () => {
       setLoadingMessages(true);
+      setIsExecuting(false);
       setErrorBanner(null);
       try {
         const raw = await api.get<Message[]>(`/sessions/${activeSessionId}/messages`);
@@ -118,6 +174,7 @@ export default function ChatPage() {
               state: "confirmed",
             }))
           );
+          setTimeout(() => scrollToBottom(false), 50);
         }
       } catch (err: unknown) {
         if (active) {
@@ -136,15 +193,25 @@ export default function ChatPage() {
     return () => {
       active = false;
     };
-  }, [activeSessionId]);
+  }, [activeSessionId, scrollToBottom]);
 
   const handleSelectSession = (id: number) => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+      abortControllerRef.current = null;
+    }
+    setIsExecuting(false);
     skipFetchSessionIdRef.current = null;
     setActiveSessionId(id);
     setRecentDrawerOpen(false);
   };
 
   const handleNewChat = () => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+      abortControllerRef.current = null;
+    }
+    setIsExecuting(false);
     skipFetchSessionIdRef.current = null;
     setActiveSessionId(null);
     setMessages([]);
@@ -178,8 +245,21 @@ export default function ChatPage() {
         state: "sending",
       };
 
-      setMessages((prev) => [...prev, tempUserMsg]);
+      // Push placeholder streaming assistant message
+      const tempAssistantMsg: Message = {
+        role: "assistant",
+        content: "",
+        created_at: new Date().toISOString(),
+        state: "streaming",
+        status_text: "Routing through LangGraph state machine...",
+      };
+
+      setMessages((prev) => [...prev, tempUserMsg, tempAssistantMsg]);
       setIsExecuting(true);
+      setTimeout(() => scrollToBottom(true), 50);
+
+      const abortController = new AbortController();
+      abortControllerRef.current = abortController;
 
       try {
         const payload: OrchestratorRequest & {
@@ -195,61 +275,165 @@ export default function ChatPage() {
           payload.developer_params = { task_type: "code_gen", mode: "preview" };
         }
 
-        const response = await api.post<OrchestratorResponse>(
-          `/projects/${selectedProject.id}/orchestrate`,
-          payload
+        let accumulatedAnswer = "";
+
+        await api.stream(
+          `/projects/${selectedProject.id}/orchestrate/stream`,
+          payload,
+          {
+            signal: abortController.signal,
+            onEvent: ({ event, data }) => {
+              const eventData = (data || {}) as StreamEventPayload;
+              if (event === "session") {
+                const newId = eventData.session_id;
+                if (newId) {
+                  if (!activeSessionId || activeSessionId !== newId) {
+                    skipFetchSessionIdRef.current = newId;
+                    setActiveSessionId(newId);
+                    setSessions((prev) => [
+                      {
+                        id: newId,
+                        project_id: selectedProject.id,
+                        type: "orchestrator",
+                        status: "active",
+                        created_at: new Date().toISOString(),
+                      },
+                      ...prev.filter((s) => s.id !== newId),
+                    ]);
+                  }
+                }
+              } else if (event === "status") {
+                setMessages((prev) => {
+                  const copy = [...prev];
+                  const lastIdx = copy.length - 1;
+                  if (lastIdx >= 0 && copy[lastIdx].role === "assistant") {
+                    copy[lastIdx] = { ...copy[lastIdx], status_text: eventData.status };
+                  }
+                  return copy;
+                });
+              } else if (event === "intent") {
+                setMessages((prev) => {
+                  const copy = [...prev];
+                  const lastIdx = copy.length - 1;
+                  if (lastIdx >= 0 && copy[lastIdx].role === "assistant") {
+                    copy[lastIdx] = { ...copy[lastIdx], intent: eventData.intent };
+                  }
+                  return copy;
+                });
+              } else if (event === "text_delta") {
+                accumulatedAnswer += eventData.delta || "";
+                setMessages((prev) => {
+                  const copy = [...prev];
+                  const lastIdx = copy.length - 1;
+                  if (lastIdx >= 0 && copy[lastIdx].role === "assistant") {
+                    copy[lastIdx] = {
+                      ...copy[lastIdx],
+                      content: accumulatedAnswer,
+                    };
+                  }
+                  return copy;
+                });
+                if (isNearBottomRef.current) {
+                  scrollToBottom(false);
+                }
+              } else if (event === "research_result") {
+                setMessages((prev) => {
+                  const copy = [...prev];
+                  const lastIdx = copy.length - 1;
+                  if (lastIdx >= 0 && copy[lastIdx].role === "assistant") {
+                    copy[lastIdx] = { ...copy[lastIdx], research_result: eventData.research_result };
+                  }
+                  return copy;
+                });
+              } else if (event === "developer_result") {
+                setMessages((prev) => {
+                  const copy = [...prev];
+                  const lastIdx = copy.length - 1;
+                  if (lastIdx >= 0 && copy[lastIdx].role === "assistant") {
+                    copy[lastIdx] = { ...copy[lastIdx], developer_result: eventData.developer_result };
+                  }
+                  return copy;
+                });
+              } else if (event === "done") {
+                setMessages((prev) => {
+                  const copy = [...prev];
+                  if (copy.length >= 2) {
+                    copy[copy.length - 2] = { ...copy[copy.length - 2], state: "confirmed" };
+                  }
+                  const lastIdx = copy.length - 1;
+                  if (lastIdx >= 0 && copy[lastIdx].role === "assistant") {
+                    copy[lastIdx] = {
+                      ...copy[lastIdx],
+                      state: "confirmed",
+                      content: eventData.answer || accumulatedAnswer,
+                      intent: eventData.intent || copy[lastIdx].intent,
+                      research_result: eventData.research_result || copy[lastIdx].research_result,
+                      developer_result: eventData.developer_result || copy[lastIdx].developer_result,
+                      execution_trace: eventData.execution_trace || [],
+                    };
+                  }
+                  return copy;
+                });
+              } else if (event === "error") {
+                setErrorBanner(eventData.detail || "Orchestration error");
+                setMessages((prev) => {
+                  const copy = [...prev];
+                  const lastIdx = copy.length - 1;
+                  if (lastIdx >= 0 && copy[lastIdx].role === "assistant") {
+                    copy[lastIdx] = {
+                      ...copy[lastIdx],
+                      state: "failed",
+                    };
+                  }
+                  return copy;
+                });
+              }
+            },
+          }
         );
-
-        // Mark user message confirmed
-        setMessages((prev) =>
-          prev.map((m, idx) => (idx === prev.length - 1 ? { ...m, state: "confirmed" } : m))
-        );
-
-        // If new session created, adopt ID and add to session list
-        if (!activeSessionId || activeSessionId !== response.session_id) {
-          skipFetchSessionIdRef.current = response.session_id;
-          setActiveSessionId(response.session_id);
-          const newSessionItem: SessionItem = {
-            id: response.session_id,
-            project_id: selectedProject.id,
-            type: "orchestrator",
-            status: "active",
-            created_at: new Date().toISOString(),
-          };
-          setSessions((prev) => [newSessionItem, ...prev.filter((s) => s.id !== response.session_id)]);
-        }
-
-        // Append assistant message
-        const assistantMsg: Message = {
-          role: "assistant",
-          content: response.answer,
-          created_at: new Date().toISOString(),
-          intent: response.intent,
-          research_result: response.research_result,
-          developer_result: response.developer_result,
-          execution_trace: response.execution_trace,
-        };
-
-        setMessages((prev) => [...prev, assistantMsg]);
       } catch (err: unknown) {
-        // Mark user message as failed
-        setMessages((prev) =>
-          prev.map((m, idx) => (idx === prev.length - 1 ? { ...m, state: "failed" } : m))
-        );
-        setErrorBanner(
-          err instanceof Error ? err.message : "Failed to receive response from orchestrator."
-        );
+        if ((err as Error)?.name === "AbortError") {
+          // User cancelled generation: mark as confirmed with current text
+          setMessages((prev) => {
+            const copy = [...prev];
+            const lastIdx = copy.length - 1;
+            if (lastIdx >= 0 && copy[lastIdx].role === "assistant") {
+              copy[lastIdx] = { ...copy[lastIdx], state: "confirmed" };
+            }
+            if (copy.length >= 2) {
+              copy[copy.length - 2] = { ...copy[copy.length - 2], state: "confirmed" };
+            }
+            return copy;
+          });
+        } else {
+          // Mark as failed
+          setMessages((prev) => {
+            const copy = [...prev];
+            if (copy.length >= 2) {
+              copy[copy.length - 2] = { ...copy[copy.length - 2], state: "failed" };
+            }
+            const lastIdx = copy.length - 1;
+            if (lastIdx >= 0 && copy[lastIdx].role === "assistant") {
+              copy[lastIdx] = { ...copy[lastIdx], state: "failed" };
+            }
+            return copy;
+          });
+          setErrorBanner(
+            err instanceof Error ? err.message : "Failed to receive response from orchestrator."
+          );
+        }
       } finally {
         setIsExecuting(false);
+        abortControllerRef.current = null;
       }
     },
-    [selectedProject, isExecuting, activeSessionId]
+    [selectedProject, isExecuting, activeSessionId, scrollToBottom]
   );
 
   const handleRetryLast = useCallback(async () => {
     const lastUserMsg = [...messages].reverse().find((m) => m.role === "user");
     if (lastUserMsg) {
-      setMessages((prev) => prev.slice(0, prev.length - 1));
+      setMessages((prev) => prev.slice(0, prev.length - 2));
       await handleSendMessage(lastUserMsg.content, {
         forced_intent: forcedIntent || undefined,
       });
@@ -377,7 +561,11 @@ export default function ChatPage() {
             </div>
 
             {/* Messages Scroll Area */}
-            <div className="flex-1 overflow-y-auto px-4 sm:px-6 py-6">
+            <div
+              ref={scrollContainerRef}
+              onScroll={handleScroll}
+              className="flex-1 overflow-y-auto px-4 sm:px-6 py-6 relative"
+            >
               <div className="max-w-4xl mx-auto space-y-4">
                 {messages.map((msg, idx) => (
                   <MessageBubble
@@ -388,39 +576,48 @@ export default function ChatPage() {
                   />
                 ))}
 
-                {isExecuting && (
-                  <div className="flex justify-start mb-6">
-                    <div className="rounded-2xl bg-[#15151B] border border-white/[0.08] p-4 shadow-lg flex items-center gap-3">
-                      <svg className="animate-spin h-4 w-4 text-[#5146FF]" viewBox="0 0 24 24">
-                        <circle
-                          className="opacity-25"
-                          cx="12"
-                          cy="12"
-                          r="10"
-                          stroke="currentColor"
-                          strokeWidth="4"
-                          fill="none"
-                        />
-                        <path
-                          className="opacity-75"
-                          fill="currentColor"
-                          d="M4 12a8 8 0 018-8v8H4z"
-                        />
-                      </svg>
-                      <span className="text-xs text-[#A4A6B8] font-medium">
-                        Routing through LangGraph state machine...
-                      </span>
-                    </div>
-                  </div>
-                )}
-
                 <div ref={messagesEndRef} />
               </div>
+
+              {/* Jump to bottom button when scrolled up */}
+              {showJumpToBottom && (
+                <div className="sticky bottom-4 flex justify-center pointer-events-none">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      isNearBottomRef.current = true;
+                      scrollToBottom(true);
+                      setShowJumpToBottom(false);
+                    }}
+                    className="pointer-events-auto inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-[#20212B] hover:bg-[#262836] border border-white/[0.12] text-xs text-[#F8F8FC] shadow-2xl transition active:scale-95 cursor-pointer backdrop-blur-md"
+                  >
+                    <svg className="w-3.5 h-3.5 text-[#8B7CFF]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 14l-7 7m0 0l-7-7m7 7V3" />
+                    </svg>
+                    <span>Jump to latest</span>
+                  </button>
+                </div>
+              )}
             </div>
 
             {/* Pinned Bottom Message Input Footer */}
             <div className="p-4 sm:p-5 border-t border-white/[0.08] bg-[#101014]/95 backdrop-blur-md flex-shrink-0">
-              <div className="max-w-4xl mx-auto">{composerElement}</div>
+              <div className="max-w-4xl mx-auto relative">
+                {/* Stop generating control pill */}
+                {isExecuting && (
+                  <div className="absolute -top-10 left-1/2 -translate-x-1/2 z-10">
+                    <button
+                      type="button"
+                      onClick={handleStopGenerating}
+                      className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-[#20212B] hover:bg-[#282836] border border-white/[0.12] text-xs font-medium text-[#F8F8FC] shadow-xl transition active:scale-95 cursor-pointer"
+                    >
+                      <span className="w-2 h-2 rounded-sm bg-rose-500 animate-pulse" />
+                      <span>Stop generating</span>
+                    </button>
+                  </div>
+                )}
+                {composerElement}
+              </div>
             </div>
           </>
         )}

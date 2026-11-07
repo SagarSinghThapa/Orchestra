@@ -1,6 +1,8 @@
+import json
 import logging
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
 from app.api.documents import get_user_project
@@ -210,3 +212,110 @@ async def orchestrate_session(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Internal error during orchestration execution.",
         ) from exc
+
+
+@router.post(
+    "/stream",
+    status_code=status.HTTP_200_OK,
+)
+async def orchestrate_stream_endpoint(
+    project_id: int,
+    request: OrchestratorRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    orchestrator_service: OrchestratorService = Depends(get_orchestrator_service),
+) -> StreamingResponse:
+    """
+    Initiates or continues an orchestration session over Server-Sent Events (SSE).
+    Streams real-time tokens, status indicators, and structured outcomes while enforcing
+    strict RBAC, rate-limiting, and project isolation.
+    """
+    project = get_user_project(project_id, current_user, db)
+
+    effective_session_id = _validate_rbac_and_session(
+        project_id=project.id,
+        request=request,
+        current_user=current_user,
+        db=db,
+    )
+    if effective_session_id != request.session_id:
+        request = request.model_copy(update={"session_id": effective_session_id})
+
+    async def event_generator():
+        try:
+            async for event in orchestrator_service.orchestrate_stream(
+                project_id=project.id,
+                request=request,
+                current_user_id=current_user.id,
+            ):
+                event_name = event.get("event", "message")
+                data_str = json.dumps(event.get("data", {}))
+                yield f"event: {event_name}\ndata: {data_str}\n\n"
+        except Exception as exc:
+            clean_err = scrub_secrets(str(exc))
+            err_data = json.dumps({"detail": clean_err})
+            yield f"event: error\ndata: {err_data}\n\n"
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
+
+@router.post(
+    "/sessions/{session_id}/stream",
+    status_code=status.HTTP_200_OK,
+)
+async def orchestrate_session_stream_endpoint(
+    project_id: int,
+    session_id: int,
+    request: OrchestratorRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    orchestrator_service: OrchestratorService = Depends(get_orchestrator_service),
+) -> StreamingResponse:
+    """
+    Continues a specific session within a project over Server-Sent Events (SSE).
+    """
+    project = get_user_project(project_id, current_user, db)
+
+    _validate_rbac_and_session(
+        project_id=project.id,
+        request=request,
+        current_user=current_user,
+        db=db,
+        path_session_id=session_id,
+    )
+
+    request_with_session = request.model_copy(update={"session_id": session_id})
+
+    async def event_generator():
+        try:
+            async for event in orchestrator_service.orchestrate_stream(
+                project_id=project.id,
+                request=request_with_session,
+                current_user_id=current_user.id,
+            ):
+                event_name = event.get("event", "message")
+                data_str = json.dumps(event.get("data", {}))
+                yield f"event: {event_name}\ndata: {data_str}\n\n"
+        except Exception as exc:
+            clean_err = scrub_secrets(str(exc))
+            err_data = json.dumps({"detail": clean_err})
+            yield f"event: error\ndata: {err_data}\n\n"
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
