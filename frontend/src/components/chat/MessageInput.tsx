@@ -11,6 +11,8 @@ interface MessageInputProps {
   onClearForcedIntent?: () => void;
   value?: string;
   onChange?: (val: string) => void;
+  isExecuting?: boolean;
+  onStop?: () => void;
 }
 
 const MAX_CHAR_LIMIT = 4000;
@@ -23,6 +25,8 @@ export function MessageInput({
   onClearForcedIntent,
   value,
   onChange,
+  isExecuting = false,
+  onStop,
 }: MessageInputProps) {
   const [internalContent, setInternalContent] = useState("");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -187,25 +191,37 @@ export function MessageInput({
             </span>
           </div>
 
-          {/* Send Button */}
-          <button
-            type="submit"
-            disabled={disabled || !content.trim() || isOverLimit}
-            aria-label="Send"
-            className="w-8 h-8 rounded-lg bg-[#5146FF] hover:bg-[#4338e8] disabled:opacity-40 disabled:cursor-not-allowed text-white flex items-center justify-center transition active:scale-95 shadow-sm cursor-pointer"
-          >
-            <span className="sr-only">Send</span>
-            {disabled ? (
-              <svg className="animate-spin h-4 w-4 text-white" viewBox="0 0 24 24">
-                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
-                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
-              </svg>
-            ) : (
-              <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14 5l7 7m0 0l-7 7m7-7H3" />
-              </svg>
-            )}
-          </button>
+          {/* Stop / Send Button */}
+          {isExecuting && onStop ? (
+            <button
+              type="button"
+              onClick={onStop}
+              aria-label="Stop generating"
+              className="w-8 h-8 rounded-lg bg-[#20212B] hover:bg-[#282836] border border-white/[0.18] text-[#F8F8FC] flex items-center justify-center transition active:scale-95 shadow-md cursor-pointer group"
+              title="Stop generating"
+            >
+              <span className="w-2.5 h-2.5 bg-rose-500 rounded-xs group-hover:scale-110 transition-transform" />
+            </button>
+          ) : (
+            <button
+              type="submit"
+              disabled={disabled || !content.trim() || isOverLimit}
+              aria-label="Send"
+              className="w-8 h-8 rounded-lg bg-[#5146FF] hover:bg-[#4338e8] disabled:opacity-40 disabled:cursor-not-allowed text-white flex items-center justify-center transition active:scale-95 shadow-sm cursor-pointer"
+            >
+              <span className="sr-only">Send</span>
+              {disabled ? (
+                <svg className="animate-spin h-4 w-4 text-white" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
+                </svg>
+              ) : (
+                <svg className="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14 5l7 7m0 0l-7 7m7-7H3" />
+                </svg>
+              )}
+            </button>
+          )}
         </div>
       </div>
     </form>

@@ -1,7 +1,7 @@
 import asyncio
 import logging
 import time
-from typing import Optional
+from typing import Awaitable, Callable, Optional
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
@@ -72,6 +72,7 @@ class ResearchService:
         self,
         project_id: int,
         request: ResearchRequest,
+        status_callback: Optional[Callable[[str], Awaitable[None]]] = None,
     ) -> ResearchResponse:
         """
         Executes bounded, authenticated research workflow with global request deadline.
@@ -109,26 +110,41 @@ class ResearchService:
 
         try:
             async with asyncio.timeout(deadline):
-                final_state = await request_graph.ainvoke(initial_state)
+                if status_callback:
+                    final_state = dict(initial_state)
+                    async for chunk in request_graph.astream(initial_state):
+                        for node_name, updates in chunk.items():
+                            if updates and isinstance(updates, dict):
+                                final_state.update(updates)
+                            if node_name == "plan":
+                                await status_callback("Searching knowledge...")
+                            elif node_name == "retrieve":
+                                await status_callback("Retrieving evidence...")
+                            elif node_name == "select":
+                                await status_callback("Generating grounded response...")
+                            elif node_name == "synthesize":
+                                await status_callback("Verifying sources...")
+                else:
+                    final_state = await request_graph.ainvoke(initial_state)
 
         except TimeoutError as exc:
             logger.error("Research request exceeded global deadline of %ss for project %s", deadline, project_id)
             raise TimeoutError(f"Research request exceeded global deadline of {deadline}s") from exc
 
-        claims = [ResearchClaim.model_validate(c) for c in final_state.get("verified_claims", [])]
-        citations = [VerifiedCitation.model_validate(c) for c in final_state.get("verified_citations", [])]
+        claims = [ResearchClaim.model_validate(c) for c in (final_state.get("verified_claims") or [])]
+        citations = [VerifiedCitation.model_validate(c) for c in (final_state.get("verified_citations") or [])]
         execution_time_ms = round((time.perf_counter() - start_time) * 1000, 2)
 
         llm_calls = budget.used_calls
 
         metadata = ResearchMetadata(
             model=getattr(settings, "llm_model", "gpt-4o-mini"),
-            subqueries_executed=final_state.get("subqueries", [request.question]),
-            total_evidence_retrieved=len(final_state.get("retrieved_evidence", [])),
+            subqueries_executed=final_state.get("subqueries") or [request.question],
+            total_evidence_retrieved=len(final_state.get("retrieved_evidence") or []),
             verified_citations_count=len(citations),
             execution_time_ms=execution_time_ms,
             llm_call_count=llm_calls,
-            repair_count=final_state.get("repair_count", 0),
+            repair_count=final_state.get("repair_count", 0) or 0,
         )
 
         raw_status = final_state.get("status", ResearchStatus.INSUFFICIENT_EVIDENCE.value)

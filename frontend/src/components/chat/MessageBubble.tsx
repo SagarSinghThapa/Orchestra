@@ -132,7 +132,12 @@ export function MessageBubble({ message, projectId, onRetry }: MessageBubbleProp
   const executionTrace = message.execution_trace || [];
 
   return (
-    <div data-testid="assistant-message-bubble" className="flex justify-start mb-6">
+    <div
+      data-testid="assistant-message-bubble"
+      aria-live="polite"
+      aria-busy={message.state === "streaming"}
+      className="flex justify-start mb-6"
+    >
       <div className="w-full max-w-[90%] sm:max-w-[85%] rounded-2xl bg-[#15151B] border border-white/[0.08] p-5 shadow-lg">
         {/* Intent Route Badge */}
         <div className="flex items-center justify-between gap-2 mb-3">
@@ -169,14 +174,57 @@ export function MessageBubble({ message, projectId, onRetry }: MessageBubbleProp
           )}
         </div>
 
-        {/* Status / Loading while streaming before content arrives */}
+        {/* Polished Compact Processing / Thinking Indicator before content arrives */}
         {message.state === "streaming" && !effectiveContent && (
-          <div className="flex items-center gap-2.5 py-1 text-xs text-[#A4A6B8]">
-            <svg className="animate-spin h-3.5 w-3.5 text-[#5146FF]" viewBox="0 0 24 24">
-              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
-              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
-            </svg>
-            <span>{message.status_text || "Synthesizing response..."}</span>
+          <div>
+            {derivedIntent === "research" ? (
+              <div
+                className="flex items-center gap-2.5 py-1 text-xs text-[#A4A6B8]"
+                role="status"
+                aria-label={message.status_text || "Researching"}
+              >
+                <span className="relative flex h-2 w-2">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75 motion-reduce:hidden" />
+                  <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500" />
+                </span>
+                <span className="font-medium text-emerald-300/90">
+                  {message.status_text || "Analyzing request..."}
+                </span>
+              </div>
+            ) : derivedIntent === "developer" ? (
+              <div
+                className="flex items-center gap-2.5 py-1 text-xs text-[#A4A6B8]"
+                role="status"
+                aria-label={message.status_text || "Developer agent executing"}
+              >
+                <span className="relative flex h-2 w-2">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75 motion-reduce:hidden" />
+                  <span className="relative inline-flex rounded-full h-2 w-2 bg-amber-500" />
+                </span>
+                <span className="font-medium text-amber-300/90">
+                  {message.status_text || "Analyzing repository..."}
+                </span>
+              </div>
+            ) : (
+              <div
+                className="flex items-center gap-2.5 py-1 text-xs text-[#A4A6B8]"
+                role="status"
+                aria-label="Thinking"
+              >
+                <div className="flex items-center gap-1" aria-hidden="true">
+                  <span className="w-1.5 h-1.5 rounded-full bg-[#5146FF] animate-bounce [animation-delay:-0.3s]" />
+                  <span className="w-1.5 h-1.5 rounded-full bg-[#5146FF] animate-bounce [animation-delay:-0.15s]" />
+                  <span className="w-1.5 h-1.5 rounded-full bg-[#5146FF] animate-bounce" />
+                </div>
+                <span className="font-medium text-[#D1D2DC]">
+                  {message.status_text &&
+                  message.status_text !== "Synthesizing response..." &&
+                  message.status_text !== "Routing through LangGraph state machine..."
+                    ? message.status_text
+                    : "Thinking..."}
+                </span>
+              </div>
+            )}
           </div>
         )}
 
@@ -204,11 +252,12 @@ export function MessageBubble({ message, projectId, onRetry }: MessageBubbleProp
           />
         )}
 
-        {/* Execution Trace Toggle */}
+        {/* Execution Trace Toggle (Collapsed by default) */}
         {executionTrace.length > 0 && (
           <div className="mt-4 pt-3 border-t border-white/[0.06]">
             <button
               onClick={() => setShowTrace(!showTrace)}
+              aria-expanded={showTrace}
               className="inline-flex items-center gap-1.5 text-[11px] text-[#929292] hover:text-[#F8F8FC] font-medium cursor-pointer transition-colors"
             >
               <svg

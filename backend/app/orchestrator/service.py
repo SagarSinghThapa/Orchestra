@@ -1,4 +1,5 @@
 import asyncio
+import inspect
 import logging
 import time
 from typing import Any, AsyncIterator, Dict, Optional
@@ -331,7 +332,7 @@ class OrchestratorService:
             # 5. Route by intent
             if intent == IntentType.RESEARCH:
                 execution_trace.append("research_subgraph:start")
-                yield {"event": "status", "data": {"status": "Searching knowledge base & retrieving evidence..."}}
+                yield {"event": "status", "data": {"status": "Searching knowledge..."}}
                 r_params = request.research_params or {}
                 req = ResearchRequest(
                     question=request.prompt,
@@ -339,16 +340,42 @@ class OrchestratorService:
                     max_evidence=r_params.get("max_evidence", 10),
                     response_depth=r_params.get("response_depth", "standard"),
                 )
-                resp = await self.research_service.research(project_id=project_id, request=req)
+
+                status_queue: asyncio.Queue[str] = asyncio.Queue()
+                async def research_status_cb(st: str):
+                    await status_queue.put(st)
+
+                research_kwargs = {"project_id": project_id, "request": req}
+                try:
+                    if "status_callback" in inspect.signature(self.research_service.research).parameters:
+                        research_kwargs["status_callback"] = research_status_cb
+                except Exception:
+                    pass
+
+                research_task = asyncio.create_task(
+                    self.research_service.research(**research_kwargs)
+                )
+
+                while not research_task.done():
+                    try:
+                        st = await asyncio.wait_for(status_queue.get(), timeout=0.1)
+                        yield {"event": "status", "data": {"status": st}}
+                    except asyncio.TimeoutError:
+                        pass
+
+                while not status_queue.empty():
+                    st = status_queue.get_nowait()
+                    yield {"event": "status", "data": {"status": st}}
+
+                resp = await research_task
                 total_calls += 1
                 execution_trace.append(f"research_subgraph:completed:{resp.status.value}")
                 research_result = resp.model_dump()
                 yield {"event": "research_result", "data": research_result}
 
                 # Stream the verified answer text
-                yield {"event": "status", "data": {"status": "Rendering verified findings..."}}
-                accumulated_text = resp.answer
-                words = accumulated_text.split(" ")
+                accumulated_text = resp.answer or "Insufficient verified evidence."
+                words = [w for w in accumulated_text.split(" ") if w]
                 for i, word in enumerate(words):
                     chunk = word + (" " if i < len(words) - 1 else "")
                     yield {"event": "text_delta", "data": {"delta": chunk}}
@@ -356,7 +383,7 @@ class OrchestratorService:
 
             elif intent == IntentType.DEVELOPER:
                 execution_trace.append("developer_subgraph:start")
-                yield {"event": "status", "data": {"status": "Analyzing repository workspace..."}}
+                yield {"event": "status", "data": {"status": "Analyzing repository..."}}
                 d_params = request.developer_params or {}
                 raw_task = d_params.get("task_type", TaskType.CODE_GEN.value)
                 task_type = TaskType(raw_task) if isinstance(raw_task, str) else raw_task
@@ -371,7 +398,34 @@ class OrchestratorService:
                     expected_file_hashes=d_params.get("expected_file_hashes"),
                     context_hints=d_params.get("context_hints"),
                 )
-                resp = await self.developer_service.execute_task(project_id=project_id, request=d_req)
+
+                dev_status_queue: asyncio.Queue[str] = asyncio.Queue()
+                async def dev_status_cb(st: str):
+                    await dev_status_queue.put(st)
+
+                dev_kwargs = {"project_id": project_id, "request": d_req}
+                try:
+                    if "status_callback" in inspect.signature(self.developer_service.execute_task).parameters:
+                        dev_kwargs["status_callback"] = dev_status_cb
+                except Exception:
+                    pass
+
+                dev_task = asyncio.create_task(
+                    self.developer_service.execute_task(**dev_kwargs)
+                )
+
+                while not dev_task.done():
+                    try:
+                        st = await asyncio.wait_for(dev_status_queue.get(), timeout=0.1)
+                        yield {"event": "status", "data": {"status": st}}
+                    except asyncio.TimeoutError:
+                        pass
+
+                while not dev_status_queue.empty():
+                    st = dev_status_queue.get_nowait()
+                    yield {"event": "status", "data": {"status": st}}
+
+                resp = await dev_task
                 total_calls += 1
                 execution_trace.append(f"developer_subgraph:completed:{resp.status.value}")
                 developer_result = resp.model_dump()
@@ -387,7 +441,7 @@ class OrchestratorService:
 
             else:  # DIRECT_QA
                 execution_trace.append("direct_qa:start")
-                yield {"event": "status", "data": {"status": "Generating response..."}}
+                yield {"event": "status", "data": {"status": "Thinking..."}}
                 total_calls += 1
                 async for chunk in self.direct_qa_engine.answer_stream(request.prompt, context=memory_str):
                     accumulated_text += chunk

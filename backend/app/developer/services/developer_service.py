@@ -1,7 +1,7 @@
 import asyncio
 import logging
 import uuid
-from typing import Optional
+from typing import Awaitable, Callable, Optional
 from sqlalchemy.orm import Session
 
 from app.developer.workspace import WorkspaceResolver
@@ -63,6 +63,7 @@ class DeveloperService:
         project_id: int,
         request: DeveloperRequest,
         trace_id: Optional[str] = None,
+        status_callback: Optional[Callable[[str], Awaitable[None]]] = None,
     ) -> DeveloperResponse:
         """
         Executes a project-scoped developer task.
@@ -98,22 +99,37 @@ class DeveloperService:
         budget = LLMCallBudget(max_calls=2)
         graph = compile_developer_subgraph(mcp_gateway=gateway, llm_provider=self.llm_provider, call_budget=budget)
 
+        initial_input = {
+            "input_payload": request,
+            "trace_id": tid,
+            "workspace_root": ws_str,
+            "mode": request.mode.value if hasattr(request.mode, "value") else str(request.mode),
+            "prompt": request.prompt,
+            "target_files": request.target_files,
+            "expected_file_hashes": request.expected_file_hashes,
+            "context_hints": request.context_hints,
+            "llm_calls_made": 0,
+            "tool_calls_made": 0,
+            "files_read_count": 0,
+        }
+
         # 5. Execute state machine under global deadline
         try:
             async with asyncio.timeout(self.timeout_seconds):
-                state_result = await graph.ainvoke({
-                    "input_payload": request,
-                    "trace_id": tid,
-                    "workspace_root": ws_str,
-                    "mode": request.mode.value if hasattr(request.mode, "value") else str(request.mode),
-                    "prompt": request.prompt,
-                    "target_files": request.target_files,
-                    "expected_file_hashes": request.expected_file_hashes,
-                    "context_hints": request.context_hints,
-                    "llm_calls_made": 0,
-                    "tool_calls_made": 0,
-                    "files_read_count": 0,
-                })
+                if status_callback:
+                    state_result = dict(initial_input)
+                    async for chunk in graph.astream(initial_input):
+                        for node_name, updates in chunk.items():
+                            if updates and isinstance(updates, dict):
+                                state_result.update(updates)
+                            if node_name == "validate":
+                                await status_callback("Analyzing repository...")
+                            elif node_name in ("repository_agent", "coding_agent", "documentation_agent"):
+                                await status_callback("Generating patch...")
+                            elif node_name in ("format_result", "format_error"):
+                                await status_callback("Preparing preview...")
+                else:
+                    state_result = await graph.ainvoke(initial_input)
         except asyncio.TimeoutError as exc:
             logger.error(f"Developer task timed out after {self.timeout_seconds}s for project {project_id}", extra={"trace_id": tid})
             raise TimeoutError(f"Developer task timed out after {self.timeout_seconds}s") from exc

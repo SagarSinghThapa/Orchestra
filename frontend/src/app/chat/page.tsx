@@ -42,6 +42,23 @@ export default function ChatPage() {
   const isNearBottomRef = useRef<boolean>(true);
   const skipFetchSessionIdRef = useRef<number | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
+  const streamRafRef = useRef<number | null>(null);
+
+  const scheduleFrame = useCallback((cb: () => void): number => {
+    if (typeof window !== "undefined" && typeof window.requestAnimationFrame === "function") {
+      return window.requestAnimationFrame(cb);
+    }
+    return setTimeout(cb, 16) as unknown as number;
+  }, []);
+
+  const cancelFrame = useCallback((id: number | null): void => {
+    if (id === null) return;
+    if (typeof window !== "undefined" && typeof window.cancelAnimationFrame === "function") {
+      window.cancelAnimationFrame(id);
+    } else {
+      clearTimeout(id);
+    }
+  }, []);
 
   const scrollToBottom = useCallback((smooth = true) => {
     if (scrollContainerRef.current) {
@@ -64,12 +81,14 @@ export default function ChatPage() {
   };
 
   const handleStopGenerating = useCallback(() => {
+    cancelFrame(streamRafRef.current);
+    streamRafRef.current = null;
     if (abortControllerRef.current) {
       abortControllerRef.current.abort();
       abortControllerRef.current = null;
     }
     setIsExecuting(false);
-  }, []);
+  }, [cancelFrame]);
 
   // Global custom event listeners for sidebar actions
   useEffect(() => {
@@ -251,7 +270,13 @@ export default function ChatPage() {
         content: "",
         created_at: new Date().toISOString(),
         state: "streaming",
-        status_text: "Routing through LangGraph state machine...",
+        intent: options?.forced_intent,
+        status_text:
+          options?.forced_intent === "research"
+            ? "Analyzing request..."
+            : options?.forced_intent === "developer"
+            ? "Analyzing repository..."
+            : "Thinking...",
       };
 
       setMessages((prev) => [...prev, tempUserMsg, tempAssistantMsg]);
@@ -260,6 +285,56 @@ export default function ChatPage() {
 
       const abortController = new AbortController();
       abortControllerRef.current = abortController;
+
+      let pendingBuffer = "";
+      let displayedContent = "";
+
+      const flushBuffer = () => {
+        cancelFrame(streamRafRef.current);
+        streamRafRef.current = null;
+        if (pendingBuffer.length > 0) {
+          displayedContent += pendingBuffer;
+          pendingBuffer = "";
+        }
+      };
+
+      const pumpQueue = () => {
+        streamRafRef.current = null;
+        if (pendingBuffer.length > 0) {
+          const len = pendingBuffer.length;
+          const take = len > 80 ? 20 : len > 35 ? 10 : len > 10 ? 5 : Math.min(len, 3);
+          const slice = pendingBuffer.slice(0, take);
+          pendingBuffer = pendingBuffer.slice(take);
+          displayedContent += slice;
+
+          setMessages((prev) => {
+            const copy = [...prev];
+            const lastIdx = copy.length - 1;
+            if (lastIdx >= 0 && copy[lastIdx].role === "assistant") {
+              copy[lastIdx] = {
+                ...copy[lastIdx],
+                content: displayedContent,
+              };
+            }
+            return copy;
+          });
+
+          if (isNearBottomRef.current) {
+            scrollToBottom(false);
+          }
+        }
+
+        if (pendingBuffer.length > 0) {
+          streamRafRef.current = scheduleFrame(pumpQueue);
+        }
+      };
+
+      const enqueueDelta = (delta: string) => {
+        pendingBuffer += delta;
+        if (streamRafRef.current === null) {
+          streamRafRef.current = scheduleFrame(pumpQueue);
+        }
+      };
 
       try {
         const payload: OrchestratorRequest & {
@@ -274,8 +349,6 @@ export default function ChatPage() {
         if (options?.forced_intent === "developer") {
           payload.developer_params = { task_type: "code_gen", mode: "preview" };
         }
-
-        let accumulatedAnswer = "";
 
         await api.stream(
           `/projects/${selectedProject.id}/orchestrate/stream`,
@@ -321,21 +394,7 @@ export default function ChatPage() {
                   return copy;
                 });
               } else if (event === "text_delta") {
-                accumulatedAnswer += eventData.delta || "";
-                setMessages((prev) => {
-                  const copy = [...prev];
-                  const lastIdx = copy.length - 1;
-                  if (lastIdx >= 0 && copy[lastIdx].role === "assistant") {
-                    copy[lastIdx] = {
-                      ...copy[lastIdx],
-                      content: accumulatedAnswer,
-                    };
-                  }
-                  return copy;
-                });
-                if (isNearBottomRef.current) {
-                  scrollToBottom(false);
-                }
+                enqueueDelta(eventData.delta || "");
               } else if (event === "research_result") {
                 setMessages((prev) => {
                   const copy = [...prev];
@@ -355,6 +414,7 @@ export default function ChatPage() {
                   return copy;
                 });
               } else if (event === "done") {
+                flushBuffer();
                 setMessages((prev) => {
                   const copy = [...prev];
                   if (copy.length >= 2) {
@@ -365,7 +425,7 @@ export default function ChatPage() {
                     copy[lastIdx] = {
                       ...copy[lastIdx],
                       state: "confirmed",
-                      content: eventData.answer || accumulatedAnswer,
+                      content: eventData.answer || displayedContent,
                       intent: eventData.intent || copy[lastIdx].intent,
                       research_result: eventData.research_result || copy[lastIdx].research_result,
                       developer_result: eventData.developer_result || copy[lastIdx].developer_result,
@@ -374,7 +434,11 @@ export default function ChatPage() {
                   }
                   return copy;
                 });
+                if (isNearBottomRef.current) {
+                  scrollToBottom(false);
+                }
               } else if (event === "error") {
+                flushBuffer();
                 setErrorBanner(eventData.detail || "Orchestration error");
                 setMessages((prev) => {
                   const copy = [...prev];
@@ -392,13 +456,14 @@ export default function ChatPage() {
           }
         );
       } catch (err: unknown) {
+        flushBuffer();
         if ((err as Error)?.name === "AbortError") {
           // User cancelled generation: mark as confirmed with current text
           setMessages((prev) => {
             const copy = [...prev];
             const lastIdx = copy.length - 1;
             if (lastIdx >= 0 && copy[lastIdx].role === "assistant") {
-              copy[lastIdx] = { ...copy[lastIdx], state: "confirmed" };
+              copy[lastIdx] = { ...copy[lastIdx], state: "confirmed", content: displayedContent };
             }
             if (copy.length >= 2) {
               copy[copy.length - 2] = { ...copy[copy.length - 2], state: "confirmed" };
@@ -423,11 +488,13 @@ export default function ChatPage() {
           );
         }
       } finally {
+        cancelFrame(streamRafRef.current);
+        streamRafRef.current = null;
         setIsExecuting(false);
         abortControllerRef.current = null;
       }
     },
-    [selectedProject, isExecuting, activeSessionId, scrollToBottom]
+    [selectedProject, isExecuting, activeSessionId, scrollToBottom, cancelFrame, scheduleFrame]
   );
 
   const handleRetryLast = useCallback(async () => {
@@ -462,6 +529,8 @@ export default function ChatPage() {
     <MessageInput
       onSend={handleSendMessage}
       disabled={isExecuting}
+      isExecuting={isExecuting}
+      onStop={handleStopGenerating}
       activeProjectName={selectedProject.name}
       forcedIntent={forcedIntent}
       onClearForcedIntent={() => setForcedIntent(null)}

@@ -1,8 +1,9 @@
 import { describe, it, expect, vi } from "vitest";
 import React from "react";
-import { render, screen } from "@testing-library/react";
+import { render, screen, fireEvent } from "@testing-library/react";
 import { MessageBubble } from "@/components/chat/MessageBubble";
 import { CitationViewer } from "@/components/chat/CitationViewer";
+import { MessageInput } from "@/components/chat/MessageInput";
 import { Message, ResearchResponse } from "@/types/chat";
 import { api } from "@/services/apiClient";
 
@@ -111,6 +112,144 @@ describe("Real-time Streaming & Citation Polish UX", () => {
       event: "done",
       data: { session_id: 42, answer: "Hello world" },
     });
+  });
+
+  it("MessageBubble renders subtle thinking processing state for Direct Q&A before first token arrives", () => {
+    const thinkingMsg: Message = {
+      role: "assistant",
+      content: "",
+      state: "streaming",
+      intent: "direct_qa",
+      status_text: "Thinking...",
+    };
+
+    render(<MessageBubble message={thinkingMsg} />);
+    const statusEl = screen.getByRole("status", { name: /Thinking/i });
+    expect(statusEl).toBeInTheDocument();
+    expect(screen.getByText(/Thinking\.\.\./i)).toBeInTheDocument();
+    expect(screen.queryByText("▍")).not.toBeInTheDocument();
+  });
+
+  it("MessageBubble renders research status indicator before content arrives", () => {
+    const researchStatusMsg: Message = {
+      role: "assistant",
+      content: "",
+      state: "streaming",
+      intent: "research",
+      status_text: "Searching knowledge...",
+    };
+
+    render(<MessageBubble message={researchStatusMsg} />);
+    const statusEl = screen.getByRole("status", { name: /Searching knowledge\.\.\./i });
+    expect(statusEl).toBeInTheDocument();
+    expect(screen.getByText("Searching knowledge...")).toBeInTheDocument();
+  });
+
+  it("MessageBubble renders developer status indicator before content arrives", () => {
+    const devStatusMsg: Message = {
+      role: "assistant",
+      content: "",
+      state: "streaming",
+      intent: "developer",
+      status_text: "Analyzing repository...",
+    };
+
+    render(<MessageBubble message={devStatusMsg} />);
+    const statusEl = screen.getByRole("status", { name: /Analyzing repository\.\.\./i });
+    expect(statusEl).toBeInTheDocument();
+    expect(screen.getByText("Analyzing repository...")).toBeInTheDocument();
+  });
+
+  it("MessageBubble transitions cleanly from thinking to answer when content arrives", () => {
+    const { rerender } = render(
+      <MessageBubble
+        message={{
+          role: "assistant",
+          content: "",
+          state: "streaming",
+          intent: "direct_qa",
+          status_text: "Thinking...",
+        }}
+      />
+    );
+    expect(screen.getByRole("status", { name: /Thinking/i })).toBeInTheDocument();
+
+    rerender(
+      <MessageBubble
+        message={{
+          role: "assistant",
+          content: "Here is the direct answer.",
+          state: "streaming",
+          intent: "direct_qa",
+        }}
+      />
+    );
+
+    expect(screen.queryByRole("status", { name: /Thinking/i })).not.toBeInTheDocument();
+    expect(screen.getByText(/Here is the direct answer\./i)).toBeInTheDocument();
+    expect(screen.getByText("▍")).toBeInTheDocument();
+  });
+
+  it("MessageBubble sets aria-live polite and aria-busy true while streaming", () => {
+    const streamingMsg: Message = {
+      role: "assistant",
+      content: "Partial streamed token",
+      state: "streaming",
+    };
+
+    render(<MessageBubble message={streamingMsg} />);
+    const bubble = screen.getByTestId("assistant-message-bubble");
+    expect(bubble).toHaveAttribute("aria-live", "polite");
+    expect(bubble).toHaveAttribute("aria-busy", "true");
+  });
+
+  it("MessageBubble renders execution trace collapsed by default with aria-expanded false", () => {
+    const traceMsg: Message = {
+      role: "assistant",
+      content: "Final answer with trace",
+      state: "confirmed",
+      execution_trace: ["classify_intent:direct_qa", "direct_qa:completed"],
+    };
+
+    render(<MessageBubble message={traceMsg} />);
+    const traceBtn = screen.getByRole("button", { name: /View Execution Trace \(2 steps\)/i });
+    expect(traceBtn).toBeInTheDocument();
+    expect(traceBtn).toHaveAttribute("aria-expanded", "false");
+    expect(screen.queryByText("classify_intent:direct_qa")).not.toBeInTheDocument();
+
+    fireEvent.click(traceBtn);
+    expect(traceBtn).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByText("classify_intent:direct_qa")).toBeInTheDocument();
+  });
+
+  it("MessageInput replaces Send button with Stop generating button while isExecuting is true and triggers onStop", () => {
+    const mockSend = vi.fn().mockResolvedValue(undefined);
+    const mockStop = vi.fn();
+
+    const { rerender } = render(
+      <MessageInput
+        onSend={mockSend}
+        isExecuting={false}
+        value="Hello Orchestra"
+      />
+    );
+
+    expect(screen.getByRole("button", { name: /Send/i })).toBeInTheDocument();
+
+    rerender(
+      <MessageInput
+        onSend={mockSend}
+        isExecuting={true}
+        onStop={mockStop}
+        value="Hello Orchestra"
+      />
+    );
+
+    const stopBtn = screen.getByRole("button", { name: /Stop generating/i });
+    expect(stopBtn).toBeInTheDocument();
+
+    fireEvent.click(stopBtn);
+    expect(mockStop).toHaveBeenCalledTimes(1);
   });
 });
 
