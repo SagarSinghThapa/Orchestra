@@ -1,149 +1,339 @@
-import { DeveloperTaskOutput } from "@/types/developer";
+export class ApiError extends Error {
+  constructor(
+    public status: number,
+    message: string,
+    public details?: unknown,
+    public retryAfter?: number,
+    public requestId?: string
+  ) {
+    super(message);
+    this.name = "ApiError";
+  }
+}
 
-const BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api";
+export type AuthFailureHandler = () => void;
+let onAuthFailure: AuthFailureHandler | null = null;
+
+export function setAuthFailureHandler(handler: AuthFailureHandler | null) {
+  onAuthFailure = handler;
+}
+
+export function getBaseUrl(): string {
+  // Playwright E2E testing environment override:
+  if (typeof window !== "undefined" && window.location.port === "3001") {
+    return "http://127.0.0.1:8001";
+  }
+
+  const rawUrl = process.env.NEXT_PUBLIC_API_URL;
+
+  // If explicitly configured in environment:
+  if (rawUrl !== undefined && rawUrl !== null) {
+    const trimmed = rawUrl.trim();
+    if (trimmed === "" || trimmed === "/" || trimmed.toLowerCase() === "same-origin") {
+      return "";
+    }
+    if (!trimmed.startsWith("http://") && !trimmed.startsWith("https://")) {
+      throw new Error(
+        "Invalid NEXT_PUBLIC_API_URL: must start with http:// or https://, or be empty for same-origin"
+      );
+    }
+    return trimmed.replace(/\/+$/, "");
+  }
+
+  // Deployed production default: same-origin relative URLs via reverse proxy
+  if (process.env.NODE_ENV === "production") {
+    return "";
+  }
+
+  // Standalone local development default (without reverse proxy)
+  return "http://localhost:8000";
+}
+
+let refreshPromise: Promise<void> | null = null;
+let lastRefreshTime = 0;
 
 class ApiAdapter {
-  async request(endpoint: string, options: RequestInit = {}) {
-    const token = typeof window !== 'undefined' ? localStorage.getItem("jwt_token") : null;
-    
-    const headers = {
-      "Content-Type": "application/json",
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      ...options.headers,
+  async request<T = unknown>(
+    endpoint: string,
+    options: RequestInit = {},
+    isRetry = false
+  ): Promise<T> {
+    const requestStartTime = Date.now();
+    const isFormData = typeof FormData !== "undefined" && options.body instanceof FormData;
+
+    const headers: Record<string, string> = {
+      ...(isFormData ? {} : { "Content-Type": "application/json" }),
+      "X-Orchestra-Request": "true",
+      ...((options.headers as Record<string, string>) || {}),
     };
-    
-    // Mock Mode check
-    if (process.env.NEXT_PUBLIC_USE_MOCK_API === 'true') {
-      console.log(`[Mock API Request]: ${endpoint}`, options.body);
-      return this._handleMock(endpoint, options);
-    }
-    
+
+    const baseUrl = getBaseUrl();
+    const normalizedEndpoint = endpoint.startsWith("/") ? endpoint : `/${endpoint}`;
+    const url = endpoint.startsWith("http")
+      ? endpoint
+      : baseUrl
+        ? `${baseUrl}${normalizedEndpoint}`
+        : normalizedEndpoint;
+
     try {
-      const response = await fetch(`${BASE_URL}${endpoint}`, { ...options, headers });
-      if (!response.ok) {
-        // Handle authentication/authorization expiration
-        if (response.status === 401 || response.status === 403) {
-          if (typeof window !== 'undefined') {
-            localStorage.removeItem("jwt_token");
-          }
+      const response = await fetch(url, {
+        ...options,
+        headers,
+        credentials: "include",
+      });
+
+      // Handle 401 Unauthorized with single-flight refresh queue
+      if (response.status === 401 && !isRetry && !this._isAuthRoute(endpoint)) {
+        if (lastRefreshTime > requestStartTime) {
+          return this.request<T>(endpoint, options, true);
         }
+
+        if (!refreshPromise) {
+          refreshPromise = (async () => {
+            try {
+              const refreshUrl = baseUrl ? `${baseUrl}/auth/refresh` : "/auth/refresh";
+              const refreshResp = await fetch(refreshUrl, {
+                method: "POST",
+                credentials: "include",
+                headers: {
+                  "Content-Type": "application/json",
+                  "X-Orchestra-Request": "true",
+                },
+              });
+              if (!refreshResp.ok) {
+                if (onAuthFailure) onAuthFailure();
+                throw new ApiError(refreshResp.status, "Session expired. Please log in again.");
+              }
+              lastRefreshTime = Date.now();
+            } catch (err) {
+              if (onAuthFailure) onAuthFailure();
+              throw err;
+            } finally {
+              refreshPromise = null;
+            }
+          })();
+        }
+
+        try {
+          await refreshPromise;
+          // Retry original request once
+          return await this.request<T>(endpoint, options, true);
+        } catch {
+          throw new ApiError(401, "Session expired. Please log in again.");
+        }
+      }
+
+      if (!response.ok) {
         let errorData: Record<string, unknown> | null = null;
         try {
           errorData = await response.json();
         } catch {
           // Response body was not JSON
         }
-        const message = (errorData?.detail as string) || (errorData?.message as string) || `API Error (${response.status}): ${response.statusText}`;
-        throw new Error(message);
+
+        const requestId = response.headers?.get ? response.headers.get("x-request-id") || undefined : undefined;
+
+        if (response.status === 429) {
+          const rawRetryAfter = response.headers?.get ? response.headers.get("retry-after") : null;
+          const parsedRetry = rawRetryAfter ? parseInt(rawRetryAfter, 10) : NaN;
+          const retryAfter = !isNaN(parsedRetry) && parsedRetry > 0 ? parsedRetry : undefined;
+
+          const message =
+            (typeof errorData?.detail === "string" ? errorData.detail : null) ||
+            (retryAfter
+              ? `Too many requests. Please try again in ${retryAfter} seconds.`
+              : "Too many requests. Please wait a moment and try again.");
+
+          throw new ApiError(429, message, errorData?.detail || errorData, retryAfter, requestId);
+        }
+
+        const message =
+          (typeof errorData?.detail === "string" ? errorData.detail : null) ||
+          (typeof errorData?.message === "string" ? errorData.message : null) ||
+          `API Error (${response.status}): ${response.statusText}`;
+
+        throw new ApiError(response.status, message, errorData?.detail || errorData, undefined, requestId);
       }
-      return response.json();
+
+      // Handle 204 No Content or empty responses cleanly
+      const contentLength = response.headers?.get ? response.headers.get("content-length") : null;
+      if (response.status === 204 || contentLength === "0") {
+        return null as unknown as T;
+      }
+
+      return (await response.json()) as T;
     } catch (error) {
-      console.error(error);
-      throw error;
-    }
-  }
-
-
-  get(endpoint: string) {
-    return this.request(endpoint, { method: "GET" });
-  }
-
-  post(endpoint: string, data: unknown) {
-    return this.request(endpoint, { method: "POST", body: JSON.stringify(data) });
-  }
-
-  // Temporary mock handler for Developer Tasks
-  private async _handleMock(endpoint: string, options: RequestInit): Promise<unknown> {
-    await new Promise(resolve => setTimeout(resolve, 1500)); // Simulate latency
-    
-    if (endpoint === '/developer/task' && options.body) {
-      const body = JSON.parse(options.body as string);
-      
-      const output: DeveloperTaskOutput = {
-        status: 'success',
-        artifacts: [],
-        result: {}
-      };
-
-      if (body.task_type === 'repo_analysis') {
-        output.result = {
-          repository: { size: "1.2MB", files: 124 },
-          languages: ["TypeScript", "Python"],
-          frameworks: ["Next.js", "FastAPI"],
-          architecture: { inferred: "Microservices with Agentic Subgraphs" },
-          important_files: ["package.json", "main.py"],
-          dependencies: ["react", "langgraph"],
-          entry_points: ["src/app/layout.tsx", "backend/main.py"],
-          modules: ["frontend", "backend"],
-          tests: { coverage: "80%" },
-          risks: ["Missing env configurations in mock mode."],
-          recommendations: ["Ensure API adapter is connected."]
-        };
-      } 
-      else if (body.task_type === 'code_gen') {
-        output.result = {
-          summary: `Successfully generated ${body.params?.mode === 'apply' ? 'and applied' : '(preview)'} changes.`,
-          plan: ["Understand context", "Write code", "Validate AST"],
-          files_changed: ["src/components/ui/Button.tsx"],
-          diffs: {
-            "src/components/ui/Button.tsx": "@@ -1,5 +1,6 @@\n+ // Optimized\n export function Button"
-          },
-          validation: {
-            "src/components/ui/Button.tsx": "Valid"
-          },
-          warnings: []
-        };
-        if (body.params?.mode === 'apply') output.artifacts = ["src/components/ui/Button.tsx"];
+      if (error instanceof ApiError) {
+        throw error;
       }
-      else if (body.task_type === 'doc_gen') {
-        output.result = {
-          document_type: body.params?.doc_type || 'README',
-          content: `# ${body.params?.doc_type || 'README'}\n\nGenerated from mock context.`,
-          sources: ["src/app/layout.tsx", "package.json"],
-          artifact: body.params?.mode === 'apply' ? `docs/${body.params?.doc_type}.md` : undefined,
-          warnings: []
-        };
-        if (body.params?.mode === 'apply') output.artifacts = [`docs/${body.params?.doc_type}.md`];
+      throw new ApiError(
+        0,
+        "Orchestra backend unreachable. Please verify server connectivity.",
+        error
+      );
+    }
+  }
+
+  private _isAuthRoute(endpoint: string): boolean {
+    return (
+      endpoint === "/auth/login" ||
+      endpoint === "/auth/register" ||
+      endpoint === "/auth/refresh" ||
+      endpoint.endsWith("/auth/login") ||
+      endpoint.endsWith("/auth/register") ||
+      endpoint.endsWith("/auth/refresh")
+    );
+  }
+
+  get<T = unknown>(endpoint: string, options: RequestInit = {}): Promise<T> {
+    return this.request<T>(endpoint, { ...options, method: "GET" });
+  }
+
+  post<T = unknown>(endpoint: string, data?: unknown, options: RequestInit = {}): Promise<T> {
+    const isFormData = typeof FormData !== "undefined" && data instanceof FormData;
+    return this.request<T>(endpoint, {
+      ...options,
+      method: "POST",
+      body: isFormData ? (data as FormData) : JSON.stringify(data),
+    });
+  }
+
+  delete<T = unknown>(endpoint: string, options: RequestInit = {}): Promise<T> {
+    return this.request<T>(endpoint, { ...options, method: "DELETE" });
+  }
+
+  async stream(
+    endpoint: string,
+    payload: unknown,
+    options?: {
+      signal?: AbortSignal;
+      onEvent?: (event: { event: string; data: unknown }) => void;
+    }
+  ): Promise<void> {
+    const baseUrl = getBaseUrl();
+    const normalizedEndpoint = endpoint.startsWith("/") ? endpoint : `/${endpoint}`;
+    const url = endpoint.startsWith("http")
+      ? endpoint
+      : baseUrl
+        ? `${baseUrl}${normalizedEndpoint}`
+        : normalizedEndpoint;
+
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+      "X-Orchestra-Request": "true",
+      Accept: "text/event-stream",
+    };
+
+    const response = await fetch(url, {
+      method: "POST",
+      headers,
+      body: JSON.stringify(payload),
+      credentials: "include",
+      signal: options?.signal,
+    });
+
+    if (!response.ok) {
+      let errorData: Record<string, unknown> | null = null;
+      try {
+        errorData = await response.json();
+      } catch {
+        // Response body was not JSON
       }
 
-      return { output_payload: output, trace_id: `trace-mock-${Date.now()}` };
+      const requestId = response.headers?.get ? response.headers.get("x-request-id") || undefined : undefined;
+
+      if (response.status === 429) {
+        const rawRetryAfter = response.headers?.get ? response.headers.get("retry-after") : null;
+        const parsedRetry = rawRetryAfter ? parseInt(rawRetryAfter, 10) : NaN;
+        const retryAfter = !isNaN(parsedRetry) && parsedRetry > 0 ? parsedRetry : undefined;
+
+        const message =
+          (typeof errorData?.detail === "string" ? errorData.detail : null) ||
+          (retryAfter
+            ? `Too many requests. Please try again in ${retryAfter} seconds.`
+            : "Too many requests. Please wait a moment and try again.");
+
+        throw new ApiError(429, message, errorData?.detail || errorData, retryAfter, requestId);
+      }
+
+      const message =
+        (typeof errorData?.detail === "string" ? errorData.detail : null) ||
+        (typeof errorData?.message === "string" ? errorData.message : null) ||
+        `Stream request failed with status ${response.status}`;
+
+      throw new ApiError(response.status, message, errorData?.detail || errorData, undefined, requestId);
     }
 
-    if (endpoint === '/evaluations/summary') {
-      return {
-        total_runs: 47,
-        passed: 38,
-        failed: 6,
-        running: 2,
-        pending: 1,
-        metrics: [
-          { name: "Avg Latency", value: 342, unit: "ms", trend: "down" as const },
-          { name: "Success Rate", value: 80.9, unit: "%", trend: "up" as const },
-          { name: "Total Runs", value: 47, unit: "runs", trend: "up" as const },
-          { name: "Active Benchmarks", value: 3, unit: "", trend: "stable" as const },
-        ],
-        agents: [
-          { agent: "Repository Agent", total_runs: 20, passed: 18, failed: 2, avg_latency_ms: 280, success_rate: 0.90 },
-          { agent: "Coding Agent", total_runs: 15, passed: 12, failed: 3, avg_latency_ms: 410, success_rate: 0.80 },
-          { agent: "Documentation Agent", total_runs: 12, passed: 8, failed: 1, avg_latency_ms: 190, success_rate: 0.73 },
-        ],
-        benchmarks: [
-          { benchmark: "Code Quality", runs: 15, avg_score: 82.3, best_score: 96, worst_score: 54 },
-          { benchmark: "Doc Accuracy", runs: 12, avg_score: 78.1, best_score: 92, worst_score: 61 },
-          { benchmark: "Repo Analysis", runs: 20, avg_score: 91.7, best_score: 99, worst_score: 72 },
-        ],
-        recent_runs: [
-          { id: "run-a1b2c3d4", agent: "Repository Agent", benchmark: "Repo Analysis", status: "passed" as const, started_at: "2026-09-05T14:30:00Z", duration_ms: 245, metrics: [], },
-          { id: "run-e5f6g7h8", agent: "Coding Agent", benchmark: "Code Quality", status: "failed" as const, started_at: "2026-09-05T14:15:00Z", duration_ms: 520, metrics: [], failure_reason: "AST validation failed on generated output" },
-          { id: "run-i9j0k1l2", agent: "Documentation Agent", benchmark: "Doc Accuracy", status: "passed" as const, started_at: "2026-09-05T13:45:00Z", duration_ms: 180, metrics: [], },
-          { id: "run-m3n4o5p6", agent: "Coding Agent", benchmark: "Code Quality", status: "running" as const, started_at: "2026-09-05T15:00:00Z", metrics: [], },
-          { id: "run-q7r8s9t0", agent: "Repository Agent", benchmark: "Repo Analysis", status: "passed" as const, started_at: "2026-09-05T12:00:00Z", duration_ms: 310, metrics: [], },
-        ],
-      };
+    const contentType = response.headers?.get ? response.headers.get("content-type") || "" : "";
+    if (contentType.includes("application/json")) {
+      const data = await response.json();
+      if (data?.session_id) {
+        options?.onEvent?.({ event: "session", data: { session_id: data.session_id } });
+      }
+      if (data?.intent) {
+        options?.onEvent?.({ event: "intent", data: { intent: data.intent } });
+      }
+      if (data?.answer) {
+        options?.onEvent?.({ event: "text_delta", data: { delta: data.answer } });
+      }
+      if (data?.research_result) {
+        options?.onEvent?.({ event: "research_result", data: data.research_result });
+      }
+      if (data?.developer_result) {
+        options?.onEvent?.({ event: "developer_result", data: data.developer_result });
+      }
+      options?.onEvent?.({ event: "done", data });
+      return;
     }
 
-    return { success: true, mocked: true };
+    if (!response.body) {
+      throw new ApiError(500, "ReadableStream not supported by browser environment.");
+    }
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+
+    try {
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const parts = buffer.split("\n\n");
+        buffer = parts.pop() || "";
+
+        for (const part of parts) {
+          const lines = part.split("\n");
+          let eventType = "message";
+          let dataStr = "";
+
+          for (const line of lines) {
+            if (line.startsWith("event:")) {
+              eventType = line.slice(6).trim();
+            } else if (line.startsWith("data:")) {
+              dataStr += line.slice(5).trim();
+            }
+          }
+
+          if (dataStr) {
+            try {
+              const data = JSON.parse(dataStr);
+              options?.onEvent?.({ event: eventType, data });
+            } catch {
+              options?.onEvent?.({ event: eventType, data: dataStr });
+            }
+          }
+        }
+      }
+    } finally {
+      reader.releaseLock();
+    }
   }
 }
 
 export const api = new ApiAdapter();
+
+if (typeof window !== "undefined") {
+  (window as unknown as { api?: typeof api }).api = api;
+}

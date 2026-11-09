@@ -1,0 +1,188 @@
+{
+  "dataset_id": "orchestra_retrieval_golden",
+  "dataset_version": "1.0.0",
+  "description": "Golden retrieval benchmark with synthetic technical corpus and stable chunk IDs",
+  "cases": [
+    {
+      "case_id": "ret_001",
+      "category": "retrieval",
+      "description": "Memory ceiling hard-cap enforcement retrieval",
+      "input_data": {
+        "query": "How is the 4000 character context ceiling enforced in memory?",
+        "fixture_corpus": [
+          {
+            "chunk_id": "chk_mem_01",
+            "document_filename": "memory_architecture.md",
+            "page_number": 1,
+            "text": "Orchestra enforces an unbreachable mathematical hard cap of 4,000 characters across assembled conversational context."
+          },
+          {
+            "chunk_id": "chk_mem_02",
+            "document_filename": "memory_architecture.md",
+            "page_number": 2,
+            "text": "Context assembler prioritizes system instructions, active summary, and most recent turns within the 4000 char budget."
+          },
+          {
+            "chunk_id": "chk_auth_01",
+            "document_filename": "auth_spec.md",
+            "page_number": 1,
+            "text": "Authentication relies on httpOnly cookies with single-flight refresh mutex."
+          },
+          {
+            "chunk_id": "chk_dev_01",
+            "document_filename": "developer_tools.md",
+            "page_number": 1,
+            "text": "Developer tool execution requires preview mode prior to apply mutation."
+          }
+        ]
+      },
+      "ground_truth": {
+        "relevant_chunk_ids": ["chk_mem_01", "chk_mem_02"]
+      },
+      "metadata": {
+        "difficulty": "standard",
+        "pillar": "memory_retrieval"
+      }
+    },
+    {
+      "case_id": "ret_002",
+      "category": "retrieval",
+      "description": "Single-flight token refresh mutex retrieval",
+      "input_data": {
+        "query": "What mechanism prevents duplicate concurrent token refresh calls in frontend?",
+        "fixture_corpus": [
+          {
+            "chunk_id": "chk_auth_01",
+            "document_filename": "auth_spec.md",
+            "page_number": 1,
+            "text": "Authentication relies on httpOnly cookies with single-flight refresh mutex."
+          },
+          {
+            "chunk_id": "chk_auth_02",
+            "document_filename": "auth_spec.md",
+            "page_number": 2,
+            "text": "The apiClient maintains an active refreshPromise mutex queue so multiple 401s share a single network refresh."
+          },
+          {
+            "chunk_id": "chk_doc_01",
+            "document_filename": "documents.md",
+            "page_number": 1,
+            "text": "Document ingestion accepts pdf, txt, and md formats up to 10MB."
+          }
+        ]
+      },
+      "ground_truth": {
+        "relevant_chunk_ids": ["chk_auth_01", "chk_auth_02"]
+      },
+      "metadata": {
+        "difficulty": "standard",
+        "pillar": "auth_retrieval"
+      }
+    },
+    {
+      "case_id": "ret_003",
+      "category": "retrieval",
+      "description": "Developer two-stage preview apply workflow",
+      "input_data": {
+        "query": "Why is preview required before apply in developer coding agent?",
+        "fixture_corpus": [
+          {
+            "chunk_id": "chk_dev_01",
+            "document_filename": "developer_tools.md",
+            "page_number": 1,
+            "text": "Developer tool execution requires preview mode prior to apply mutation to verify AST validity and diffs."
+          },
+          {
+            "chunk_id": "chk_dev_02",
+            "document_filename": "developer_tools.md",
+            "page_number": 2,
+            "text": "Preview mode guarantees zero filesystem modification and calculates baseline hashes."
+          },
+          {
+            "chunk_id": "chk_mem_01",
+            "document_filename": "memory_architecture.md",
+            "page_number": 1,
+            "text": "Orchestra enforces an unbreachable mathematical hard cap of 4,000 characters."
+          }
+        ]
+      },
+      "ground_truth": {
+        "relevant_chunk_ids": ["chk_dev_01", "chk_dev_02"]
+      },
+      "metadata": {
+        "difficulty": "standard",
+        "pillar": "developer_retrieval"
+      }
+    },
+    {
+      "case_id": "ret_004",
+      "category": "retrieval",
+      "description": "Document ingestion supported formats",
+      "input_data": {
+        "query": "Which file formats are supported for document ingestion?",
+        "fixture_corpus": [
+          {
+            "chunk_id": "chk_doc_01",
+            "document_filename": "documents.md",
+            "page_number": 1,
+            "text": "Document ingestion accepts pdf, txt, and md formats up to 10MB."
+          },
+          {
+            "chunk_id": "chk_doc_02",
+            "document_filename": "documents.md",
+            "page_number": 2,
+            "text": "Uploaded documents are parsed, chunked via recursive chunker, and indexed into Qdrant vector store."
+          },
+          {
+            "chunk_id": "chk_auth_01",
+            "document_filename": "auth_spec.md",
+            "page_number": 1,
+            "text": "Authentication relies on httpOnly cookies with single-flight refresh mutex."
+          }
+        ]
+      },
+      "ground_truth": {
+        "relevant_chunk_ids": ["chk_doc_01"]
+      },
+      "metadata": {
+        "difficulty": "easy",
+        "pillar": "document_retrieval"
+      }
+    },
+    {
+      "case_id": "ret_005",
+      "category": "retrieval",
+      "description": "Qdrant hybrid sparse-dense vector retrieval",
+      "input_data": {
+        "query": "How are sparse and dense scores fused in hybrid search?",
+        "fixture_corpus": [
+          {
+            "chunk_id": "chk_search_01",
+            "document_filename": "search_architecture.md",
+            "page_number": 1,
+            "text": "Hybrid search blends dense vector similarity with BM25 sparse keyword scores using reciprocal rank fusion."
+          },
+          {
+            "chunk_id": "chk_search_02",
+            "document_filename": "search_architecture.md",
+            "page_number": 2,
+            "text": "Reciprocal rank fusion normalizes rankings across modalities with a constant smoothing factor."
+          },
+          {
+            "chunk_id": "chk_dev_02",
+            "document_filename": "developer_tools.md",
+            "page_number": 2,
+            "text": "Preview mode guarantees zero filesystem modification."
+          }
+        ]
+      },
+      "ground_truth": {
+        "relevant_chunk_ids": ["chk_search_01", "chk_search_02"]
+      },
+      "metadata": {
+        "difficulty": "technical",
+        "pillar": "hybrid_search"
+      }
+    }
+  ]
+}

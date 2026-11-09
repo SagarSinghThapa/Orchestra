@@ -1,0 +1,114 @@
+import logging
+import re
+from pathlib import Path, PureWindowsPath
+from typing import Optional
+
+from app.core.config import settings
+from app.research.storage.base import StorageBackend
+
+logger = logging.getLogger(__name__)
+WINDOWS_DRIVE_PREFIX = re.compile(r"^[A-Za-z]:")
+SEPARATOR_SPLIT = re.compile(r"[/\\]+")
+
+
+class LocalStorageBackend(StorageBackend):
+    """
+    Filesystem-backed implementation of StorageBackend with strict path traversal defenses
+    and idempotent deletion semantics.
+    """
+
+    def __init__(self, root_dir: Optional[str | Path] = None) -> None:
+        actual_root = root_dir if root_dir is not None else settings.storage_local_root
+        self.root_dir = Path(actual_root).resolve()
+        self.root_dir.mkdir(parents=True, exist_ok=True)
+
+    def _resolve_key(self, storage_key: str) -> Path:
+        """
+        Resolves storage_key relative to root_dir, strictly rejecting path traversal,
+        null bytes, Windows/POSIX separator escapes, symlinks, and escapes outside canonical root.
+        """
+        if not storage_key or not isinstance(storage_key, str):
+            raise ValueError("Storage key must be a non-empty string")
+
+        if "\0" in storage_key:
+            raise ValueError("Path traversal detected: null byte in storage key")
+
+        raw_key = storage_key.strip()
+        if len(raw_key) >= 2 and raw_key[0] in ("/", "\\") and raw_key[1] in ("/", "\\"):
+            raise ValueError("Path traversal detected: UNC path in storage key")
+        if WINDOWS_DRIVE_PREFIX.match(raw_key) or PureWindowsPath(raw_key).drive:
+            raise ValueError("Path traversal detected: drive path in storage key")
+
+        # Strip leading slashes to prevent root escapes while checking all segments across / and \
+        clean_key = raw_key.lstrip("/\\")
+        if not clean_key:
+            raise ValueError("Path traversal detected: resolved path escapes storage root")
+
+        clean_parts = []
+        for seg in SEPARATOR_SPLIT.split(clean_key):
+            if not seg or seg == ".":
+                continue
+            if seg == ".." or seg.strip() == ".." or (len(seg.rstrip(" ")) >= 2 and set(seg.rstrip(" ")) == {"."}):
+                raise ValueError("Path traversal detected: resolved path escapes storage root")
+            clean_parts.append(seg)
+
+        if not clean_parts:
+            raise ValueError("Path traversal detected: resolved path escapes storage root")
+
+        curr = self.root_dir
+        for part in clean_parts:
+            curr = curr / part
+            is_junction = getattr(curr, "is_junction", None)
+            if curr.is_symlink() or (callable(is_junction) and is_junction()):
+                try:
+                    curr.resolve(strict=False).relative_to(self.root_dir)
+                except (OSError, RuntimeError, ValueError):
+                    raise ValueError("Path traversal detected: resolved path escapes storage root")
+
+        candidate_path = self.root_dir.joinpath(*clean_parts).resolve()
+
+        try:
+            if not candidate_path.is_relative_to(self.root_dir) or candidate_path == self.root_dir:
+                raise ValueError("Path traversal detected: resolved path escapes storage root")
+        except AttributeError:
+            # Fallback for Python < 3.9 if ever needed
+            if not str(candidate_path).startswith(str(self.root_dir)):
+                raise ValueError("Path traversal detected: resolved path escapes storage root")
+
+        return candidate_path
+
+    def save(self, data: bytes, storage_key: str) -> int:
+        """Write file bytes and return byte count."""
+        resolved = self._resolve_key(storage_key)
+        resolved.parent.mkdir(parents=True, exist_ok=True)
+        resolved.write_bytes(data)
+        return len(data)
+
+    def read(self, storage_key: str) -> bytes:
+        """Read and return file bytes. Raises FileNotFoundError if absent."""
+        resolved = self._resolve_key(storage_key)
+        if not resolved.is_file():
+            raise FileNotFoundError(f"File not found for storage key: {storage_key}")
+        return resolved.read_bytes()
+
+    def delete(self, storage_key: str) -> bool:
+        """
+        Deletes physical file idempotently.
+        If file is missing (FileNotFoundError), logs warning and returns True.
+        """
+        resolved = self._resolve_key(storage_key)
+        try:
+            resolved.unlink()
+            return True
+        except FileNotFoundError:
+            logger.warning("Attempted to delete non-existent storage file: %s", storage_key)
+            return True
+
+    def exists(self, storage_key: str) -> bool:
+        """Check whether physical file exists on disk."""
+        resolved = self._resolve_key(storage_key)
+        return resolved.is_file()
+
+    def get_absolute_path(self, storage_key: str) -> Path:
+        """Return safe resolved path on filesystem."""
+        return self._resolve_key(storage_key)

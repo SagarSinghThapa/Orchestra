@@ -1,204 +1,367 @@
 "use client";
 
-import { useState, useEffect, useMemo } from "react";
-import { api } from "@/services/apiClient";
-import { Card } from "@/components/ui/Card";
-import { LoadingState, ErrorState, EmptyState } from "@/components/ui/StateWrappers";
+import React, { useState, useEffect, useMemo, useRef } from "react";
+import { useAuth } from "@/features/auth/useAuth";
+import { useProject } from "@/features/projects/ProjectContext";
+import { api, ApiError } from "@/services/apiClient";
+import {
+  BenchmarkSuiteInfo,
+  EvaluationRun,
+  EvaluationRunCreate,
+  ExecutionMode,
+} from "@/types/evaluations";
 import { MetricCard } from "@/components/evaluations/MetricCard";
-import { StatusBadge } from "@/components/evaluations/StatusBadge";
-import { PerformanceBar } from "@/components/evaluations/PerformanceBar";
-import { RunTable } from "@/components/evaluations/RunTable";
-import { EvaluationSummary, EvaluationFilters, EvalStatus } from "@/types/evaluations";
+import { RunsTable } from "@/components/evaluations/RunsTable";
+import { RunEvaluationModal } from "@/components/evaluations/RunEvaluationModal";
+import { RunInspectorModal } from "@/components/evaluations/RunInspectorModal";
 
 export default function EvaluationsPage() {
-  const [summary, setSummary] = useState<EvaluationSummary | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
+  const { user } = useAuth();
+  const { selectedProject } = useProject();
 
-  // Filters
-  const [filters, setFilters] = useState<EvaluationFilters>({});
+  const isViewer = user?.role === "viewer";
 
-  const fetchSummary = async () => {
-    setLoading(true);
-    setError("");
-    try {
-      const data = await api.get("/evaluations/summary");
-      setSummary(data as EvaluationSummary);
-    } catch (e: unknown) {
-      setError((e as Error).message);
-    } finally {
-      setLoading(false);
-    }
-  };
+  const [suites, setSuites] = useState<BenchmarkSuiteInfo[]>([]);
+  const [runs, setRuns] = useState<EvaluationRun[]>([]);
+  const [loading, setLoading] = useState<boolean>(true);
+  const [executionLoading, setExecutionLoading] = useState<boolean>(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const [isRunModalOpen, setIsRunModalOpen] = useState<boolean>(false);
+  const [isInspectorModalOpen, setIsInspectorModalOpen] = useState<boolean>(false);
+  const [inspectedRun, setInspectedRun] = useState<EvaluationRun | null>(null);
+
+  const activeAbortController = useRef<AbortController | null>(null);
 
   useEffect(() => {
     let active = true;
-    const initFetch = async () => {
+    const controller = new AbortController();
+    activeAbortController.current = controller;
+
+    const loadData = async () => {
       try {
-        const data = await api.get("/evaluations/summary");
-        if (active) setSummary(data as EvaluationSummary);
-      } catch (e: unknown) {
-        if (active) setError((e as Error).message);
+        const [suitesResp, runsResp] = await Promise.all([
+          api.get<BenchmarkSuiteInfo[]>("/evaluations/benchmarks", {
+            signal: controller.signal,
+          }),
+          api.get<EvaluationRun[]>(
+            `/evaluations/runs${selectedProject ? `?project_id=${selectedProject.id}` : ""}`,
+            { signal: controller.signal }
+          ),
+        ]);
+
+        if (active) {
+          setSuites(suitesResp);
+          setRuns(runsResp);
+          setError(null);
+        }
+      } catch (err: unknown) {
+        if (err instanceof Error && err.name === "AbortError") {
+          return;
+        }
+        if (active) {
+          const msg = err instanceof ApiError ? err.message : "Failed to load evaluation data";
+          setError(msg);
+        }
       } finally {
-        if (active) setLoading(false);
+        if (active) {
+          setLoading(false);
+        }
       }
     };
-    initFetch();
-    return () => { active = false; };
-  }, []);
 
-  // Filtered runs
-  const filteredRuns = useMemo(() => {
-    if (!summary) return [];
-    return summary.recent_runs.filter(run => {
-      if (filters.agent && run.agent !== filters.agent) return false;
-      if (filters.benchmark && run.benchmark !== filters.benchmark) return false;
-      if (filters.status && run.status !== filters.status) return false;
-      return true;
-    });
-  }, [summary, filters]);
+    loadData();
 
-  // Status distribution
-  const statusCounts = useMemo(() => {
-    if (!summary) return { passed: 0, failed: 0, running: 0, pending: 0, error: 0 };
-    return {
-      passed: summary.passed,
-      failed: summary.failed,
-      running: summary.running,
-      pending: summary.pending,
-      error: 0,
+    return () => {
+      active = false;
+      controller.abort();
     };
-  }, [summary]);
+  }, [selectedProject]);
 
-  const totalForBar = Math.max(statusCounts.passed + statusCounts.failed + statusCounts.running + statusCounts.pending, 1);
+  // Derived metrics from latest run and active baseline
+  const activeBaseline = useMemo(() => {
+    return runs.find((r) => r.is_baseline && r.status === "completed") || null;
+  }, [runs]);
 
-  if (loading) return <LoadingState message="Loading evaluation dashboard..." />;
-  if (error) return <ErrorState message={error} onRetry={fetchSummary} />;
-  if (!summary) return <EmptyState title="No Evaluations" description="The evaluation infrastructure has not produced any results yet. Runs will appear here once M1/M2 pipelines are active." />;
+  const latestCompletedRun = useMemo(() => {
+    return runs.find((r) => r.status === "completed") || null;
+  }, [runs]);
+
+  const getMetricValue = (run: EvaluationRun | null, ...keys: string[]): number | null => {
+    if (!run || !run.summary_metrics) return null;
+    for (const k of keys) {
+      if (k in run.summary_metrics) {
+        return run.summary_metrics[k];
+      }
+    }
+    return null;
+  };
+
+  const handleLaunchRun = async (params: {
+    suite_id: string;
+    project_id?: number | null;
+    execution_mode: ExecutionMode;
+    max_cases: number;
+  }) => {
+    try {
+      setExecutionLoading(true);
+      setError(null);
+
+      const payload: EvaluationRunCreate = {
+        suite_id: params.suite_id,
+        project_id: params.project_id,
+        execution_mode: params.execution_mode,
+        max_cases: params.max_cases,
+      };
+
+      const newRun = await api.post<EvaluationRun>("/evaluations/runs", payload);
+
+      // Prepend to runs list
+      setRuns((prev) => [newRun, ...prev]);
+
+      // Automatically open inspector for immediate feedback
+      setInspectedRun(newRun);
+      setIsInspectorModalOpen(true);
+    } catch (err: unknown) {
+      const msg = err instanceof ApiError ? err.message : "Failed to execute benchmark run";
+      setError(msg);
+    } finally {
+      setExecutionLoading(false);
+    }
+  };
+
+  const handleInspect = async (run: EvaluationRun) => {
+    try {
+      if (!run.case_results || run.case_results.length === 0) {
+        const fullRun = await api.get<EvaluationRun>(`/evaluations/runs/${run.id}`);
+        setInspectedRun(fullRun);
+      } else {
+        setInspectedRun(run);
+      }
+      setIsInspectorModalOpen(true);
+    } catch (err: unknown) {
+      const msg = err instanceof ApiError ? err.message : "Failed to load run details";
+      setError(msg);
+    }
+  };
+
+  const handleSetBaseline = async (runId: string) => {
+    try {
+      const updatedRun = await api.post<EvaluationRun>(`/evaluations/runs/${runId}/baseline`);
+      setRuns((prev) =>
+        prev.map((r) => {
+          if (r.id === runId) return updatedRun;
+          if (r.suite_id === updatedRun.suite_id && r.project_id === updatedRun.project_id) {
+            return { ...r, is_baseline: false };
+          }
+          return r;
+        })
+      );
+    } catch (err: unknown) {
+      const msg = err instanceof ApiError ? err.message : "Failed to promote run to baseline";
+      setError(msg);
+    }
+  };
+
+  const handleDeleteRun = async (runId: string) => {
+    try {
+      await api.delete(`/evaluations/runs/${runId}`);
+      setRuns((prev) => prev.filter((r) => r.id !== runId));
+      if (inspectedRun?.id === runId) {
+        setIsInspectorModalOpen(false);
+        setInspectedRun(null);
+      }
+    } catch (err: unknown) {
+      const msg = err instanceof ApiError ? err.message : "Failed to delete evaluation run";
+      setError(msg);
+    }
+  };
 
   return (
-    <div className="max-w-6xl mx-auto space-y-8">
-      <div className="flex justify-between items-center">
-        <h1 className="text-3xl font-bold text-gray-900">Evaluation Dashboard</h1>
-        <span className="text-xs text-gray-400 bg-gray-100 px-3 py-1 rounded-full">Provisional — awaiting M1/M2 contracts</span>
+    <div className="p-6 sm:p-8 space-y-6 max-w-6xl mx-auto pb-12">
+      {/* Top Header */}
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+        <div>
+          <div className="flex items-center space-x-3">
+            <h1 className="text-2xl sm:text-3xl font-bold text-[#F8F8FC] tracking-tight">
+              Model &amp; Agent Evaluations
+            </h1>
+            {isViewer && (
+              <span className="px-2.5 py-0.5 rounded-full text-xs font-semibold bg-amber-500/15 text-amber-300 border border-amber-500/30">
+                Viewer Role (Read Only)
+              </span>
+            )}
+          </div>
+          <p className="text-xs sm:text-sm text-[#A4A6B8] mt-1 max-w-2xl">
+            Automated deterministic benchmarking suite for multi-agent intelligence, citation grounding, and safety telemetry.
+          </p>
+        </div>
+
+        <div>
+          <button
+            type="button"
+            disabled={isViewer || executionLoading}
+            onClick={() => setIsRunModalOpen(true)}
+            title={isViewer ? "Viewers cannot launch benchmark runs" : undefined}
+            className="px-4 py-2.5 text-xs sm:text-sm font-semibold rounded-xl bg-[#5146FF] hover:bg-[#4338e8] text-white disabled:opacity-40 disabled:cursor-not-allowed shadow-sm transition-all active:scale-95 flex items-center space-x-2 cursor-pointer"
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            <span>Run Benchmark</span>
+          </button>
+        </div>
       </div>
 
-      {/* Metric Cards */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-        {summary.metrics.map(m => (
-          <MetricCard key={m.name} metric={m} />
-        ))}
-      </div>
-
-      {/* Status Distribution Bar */}
-      <Card>
-        <h2 className="text-lg font-bold mb-3">Status Distribution</h2>
-        <div className="flex rounded-full overflow-hidden h-6">
-          <div className="bg-green-500 transition-all" style={{ width: `${(statusCounts.passed / totalForBar) * 100}%` }} title={`Passed: ${statusCounts.passed}`} />
-          <div className="bg-red-500 transition-all" style={{ width: `${(statusCounts.failed / totalForBar) * 100}%` }} title={`Failed: ${statusCounts.failed}`} />
-          <div className="bg-blue-500 transition-all animate-pulse" style={{ width: `${(statusCounts.running / totalForBar) * 100}%` }} title={`Running: ${statusCounts.running}`} />
-          <div className="bg-gray-300 transition-all" style={{ width: `${(statusCounts.pending / totalForBar) * 100}%` }} title={`Pending: ${statusCounts.pending}`} />
+      {/* Global Error Banner */}
+      {error && (
+        <div className="p-4 rounded-xl bg-rose-500/10 border border-rose-500/20 text-rose-300 text-xs flex items-center justify-between">
+          <span>{error}</span>
+          <button
+            type="button"
+            onClick={() => setError(null)}
+            className="text-rose-400 hover:text-rose-200 font-bold ml-4 cursor-pointer"
+          >
+            ✕
+          </button>
         </div>
-        <div className="flex space-x-6 mt-2 text-xs text-gray-500">
-          <span className="flex items-center"><span className="w-3 h-3 rounded-full bg-green-500 mr-1"></span> Passed ({statusCounts.passed})</span>
-          <span className="flex items-center"><span className="w-3 h-3 rounded-full bg-red-500 mr-1"></span> Failed ({statusCounts.failed})</span>
-          <span className="flex items-center"><span className="w-3 h-3 rounded-full bg-blue-500 mr-1"></span> Running ({statusCounts.running})</span>
-          <span className="flex items-center"><span className="w-3 h-3 rounded-full bg-gray-300 mr-1"></span> Pending ({statusCounts.pending})</span>
-        </div>
-      </Card>
-
-      {/* Agent Performance */}
-      <Card>
-        <h2 className="text-lg font-bold mb-4">Agent Performance</h2>
-        {summary.agents.length === 0 ? (
-          <EmptyState title="No Agent Data" description="Agent performance data will appear after evaluation runs complete." />
-        ) : (
-          <div className="space-y-1">
-            {summary.agents.map(a => <PerformanceBar key={a.agent} agent={a} />)}
-          </div>
-        )}
-      </Card>
-
-      {/* Benchmark Results */}
-      <Card>
-        <h2 className="text-lg font-bold mb-4">Benchmark Results</h2>
-        {summary.benchmarks.length === 0 ? (
-          <EmptyState title="No Benchmarks" description="Benchmark definitions are owned by Member 1. Results will appear once benchmarks are configured." />
-        ) : (
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            {summary.benchmarks.map(b => (
-              <div key={b.benchmark} className="bg-gray-50 rounded-lg p-4 border">
-                <h3 className="font-semibold text-gray-800">{b.benchmark}</h3>
-                <div className="mt-2 space-y-1 text-sm">
-                  <div className="flex justify-between"><span className="text-gray-500">Avg Score</span><span className="font-bold">{b.avg_score.toFixed(1)}</span></div>
-                  <div className="flex justify-between"><span className="text-gray-500">Best</span><span className="text-green-600">{b.best_score}</span></div>
-                  <div className="flex justify-between"><span className="text-gray-500">Worst</span><span className="text-red-600">{b.worst_score}</span></div>
-                  <div className="flex justify-between"><span className="text-gray-500">Runs</span><span>{b.runs}</span></div>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </Card>
-
-      {/* Filters + Historical Runs */}
-      <Card>
-        <div className="flex flex-wrap items-center justify-between mb-4 gap-3">
-          <h2 className="text-lg font-bold">Historical Runs</h2>
-          <div className="flex flex-wrap gap-2">
-            <select
-              className="border rounded px-3 py-1.5 text-sm bg-white"
-              value={filters.agent || ''}
-              onChange={e => setFilters(f => ({ ...f, agent: e.target.value || undefined }))}
-            >
-              <option value="">All Agents</option>
-              {summary.agents.map(a => <option key={a.agent} value={a.agent}>{a.agent}</option>)}
-            </select>
-
-            <select
-              className="border rounded px-3 py-1.5 text-sm bg-white"
-              value={filters.benchmark || ''}
-              onChange={e => setFilters(f => ({ ...f, benchmark: e.target.value || undefined }))}
-            >
-              <option value="">All Benchmarks</option>
-              {summary.benchmarks.map(b => <option key={b.benchmark} value={b.benchmark}>{b.benchmark}</option>)}
-            </select>
-
-            <select
-              className="border rounded px-3 py-1.5 text-sm bg-white"
-              value={filters.status || ''}
-              onChange={e => setFilters(f => ({ ...f, status: (e.target.value || undefined) as EvalStatus | undefined }))}
-            >
-              <option value="">All Statuses</option>
-              <option value="passed">Passed</option>
-              <option value="failed">Failed</option>
-              <option value="running">Running</option>
-              <option value="pending">Pending</option>
-            </select>
-          </div>
-        </div>
-
-        <RunTable runs={filteredRuns} />
-      </Card>
-
-      {/* Failure Analysis */}
-      {summary.recent_runs.some(r => r.failure_reason) && (
-        <Card className="border-l-4 border-l-red-500">
-          <h2 className="text-lg font-bold mb-3 text-red-700">Failure Analysis</h2>
-          <div className="space-y-3">
-            {summary.recent_runs.filter(r => r.failure_reason).map(r => (
-              <div key={r.id} className="bg-red-50 p-3 rounded border border-red-100">
-                <div className="flex items-center space-x-3 mb-1">
-                  <StatusBadge status={r.status} />
-                  <span className="font-mono text-sm text-gray-700">{r.id.slice(0, 8)}</span>
-                  <span className="text-sm text-gray-500">{r.agent} / {r.benchmark}</span>
-                </div>
-                <p className="text-sm text-red-700">{r.failure_reason}</p>
-              </div>
-            ))}
-          </div>
-        </Card>
       )}
+
+      {/* Synchronous Execution Loading Banner */}
+      {executionLoading && (
+        <div className="rounded-xl border border-[#5146FF]/30 bg-[#5146FF]/15 p-4 shadow-sm animate-pulse">
+          <div className="flex items-center space-x-3">
+            <svg className="animate-spin h-5 w-5 text-[#5146FF]" viewBox="0 0 24 24">
+              <circle
+                className="opacity-25"
+                cx="12"
+                cy="12"
+                r="10"
+                stroke="currentColor"
+                strokeWidth="4"
+                fill="none"
+              />
+              <path
+                className="opacity-75"
+                fill="currentColor"
+                d="M4 12a8 8 0 018-8v8H4z"
+              />
+            </svg>
+            <div>
+              <span className="font-semibold text-xs sm:text-sm text-[#F8F8FC] block">
+                Executing benchmark suite...
+              </span>
+              <span className="text-xs text-[#A4A6B8]">
+                Evaluating test cases sequentially to preserve latency accuracy. Zero fabricated progress.
+              </span>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Primary Metric Summary Cards */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <MetricCard
+          label="RAG Faithfulness"
+          value={getMetricValue(latestCompletedRun, "rag_faithfulness", "faithfulness_rate")}
+          baselineValue={getMetricValue(activeBaseline, "rag_faithfulness", "faithfulness_rate")}
+          unit="%"
+          direction="higher_is_better"
+          description="Citation precision and claim grounding"
+        />
+
+        <MetricCard
+          label="Citation Precision"
+          value={getMetricValue(latestCompletedRun, "citation_precision")}
+          baselineValue={getMetricValue(activeBaseline, "citation_precision")}
+          unit="%"
+          direction="higher_is_better"
+          description="Ratio of relevant citations over total citations"
+        />
+
+        <MetricCard
+          label="Coding AST Validity"
+          value={getMetricValue(latestCompletedRun, "ast_syntax_validity", "syntax_validity")}
+          baselineValue={getMetricValue(activeBaseline, "ast_syntax_validity", "syntax_validity")}
+          unit="%"
+          direction="higher_is_better"
+          description="Tree-sitter parser validation score"
+        />
+
+        <MetricCard
+          label="P95 Latency"
+          value={getMetricValue(latestCompletedRun, "p95_latency_ms")}
+          baselineValue={getMetricValue(activeBaseline, "p95_latency_ms")}
+          unit="ms"
+          direction="lower_is_better"
+          description="Nearest-rank 95th percentile turn time"
+        />
+      </div>
+
+      {/* Main Content Area */}
+      {loading ? (
+        <div className="p-12 text-center bg-[#20212B] rounded-xl border border-white/[0.08]">
+          <svg className="animate-spin h-6 w-6 text-[#5146FF] mx-auto mb-3" viewBox="0 0 24 24">
+            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
+          </svg>
+          <p className="text-xs text-[#929292] font-medium">Loading evaluation runs and benchmarks...</p>
+        </div>
+      ) : runs.length === 0 ? (
+        /* Honest Empty State — Zero Mock Metrics */
+        <div className="text-center py-16 px-4 bg-[#20212B] rounded-2xl border border-dashed border-white/[0.12] shadow-xl">
+          <div className="w-12 h-12 rounded-xl bg-[#5146FF]/15 text-[#8B7CFF] flex items-center justify-center mx-auto mb-4 border border-[#5146FF]/20">
+            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+            </svg>
+          </div>
+          <h3 className="text-base font-semibold text-[#F8F8FC] mb-1">
+            No evaluation runs recorded
+          </h3>
+          <p className="text-xs text-[#929292] max-w-md mx-auto mb-6">
+            Run your first benchmark suite to evaluate system intelligence and track regression metrics.
+          </p>
+          <button
+            type="button"
+            disabled={isViewer || executionLoading}
+            onClick={() => setIsRunModalOpen(true)}
+            title={isViewer ? "Viewers cannot launch benchmark runs" : undefined}
+            className="px-4 py-2 text-xs font-semibold rounded-lg bg-[#5146FF] hover:bg-[#4338e8] text-white disabled:opacity-40 disabled:cursor-not-allowed shadow-sm transition-all cursor-pointer"
+          >
+            Run Benchmark
+          </button>
+        </div>
+      ) : (
+        /* Historical Runs Table */
+        <RunsTable
+          runs={runs}
+          isViewer={isViewer}
+          onInspect={handleInspect}
+          onSetBaseline={handleSetBaseline}
+          onDelete={handleDeleteRun}
+        />
+      )}
+
+      {/* Modals */}
+      <RunEvaluationModal
+        isOpen={isRunModalOpen}
+        onClose={() => setIsRunModalOpen(false)}
+        suites={suites}
+        currentProjectId={selectedProject?.id || null}
+        onSubmit={handleLaunchRun}
+        isLoading={executionLoading}
+        isViewer={isViewer}
+      />
+
+      <RunInspectorModal
+        isOpen={isInspectorModalOpen}
+        onClose={() => {
+          setIsInspectorModalOpen(false);
+          setInspectedRun(null);
+        }}
+        run={inspectedRun}
+      />
     </div>
   );
 }

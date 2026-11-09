@@ -1,4 +1,11 @@
-import { AgentPerformance } from "@/types/evaluations";
+export interface AgentPerformance {
+  agent: string;
+  total_runs: number;
+  passed: number;
+  failed: number;
+  avg_latency_ms: number;
+  success_rate: number;
+}
 
 export function PerformanceBar({ agent }: { agent: AgentPerformance }) {
   const rate = Math.round(agent.success_rate * 100);

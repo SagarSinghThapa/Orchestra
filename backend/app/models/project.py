@@ -1,7 +1,7 @@
 from datetime import datetime
 
 from sqlalchemy import DateTime, ForeignKey, String, Text
-from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.orm import Mapped, mapped_column, relationship, backref
 
 from app.database.base import Base
 
@@ -35,5 +35,5 @@ class Project(Base):
 
     owner = relationship(
         "User",
-        backref="projects",
+        backref=backref("projects", cascade="all, delete", passive_deletes=True),
     )

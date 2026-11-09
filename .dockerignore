@@ -1,0 +1,46 @@
+# Version Control
+.git
+.gitignore
+.github
+
+# Python artifacts
+.venv
+venv
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache
+*.egg-info
+dist
+build
+
+# Node artifacts
+node_modules
+*/node_modules
+.next
+*/.next
+
+# Test & E2E artifacts
+test-results
+playwright-report
+blob-report
+coverage
+.nyc_output
+
+# Environment & local secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.cert
+
+# Local state & databases
+*.db
+*.sqlite
+*.sqlite3
+data/
+workspaces/
+.gsd/
+docs/

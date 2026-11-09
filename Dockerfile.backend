@@ -1,0 +1,30 @@
+# Stage 1: Build virtualenv and install production dependencies
+FROM python:3.13-slim AS builder
+WORKDIR /build
+RUN apt-get update && apt-get install -y --no-install-recommends build-essential && rm -rf /var/lib/apt/lists/*
+COPY backend/pyproject.toml .
+RUN python -m venv /opt/venv && \
+    /opt/venv/bin/pip install --no-cache-dir --upgrade pip setuptools wheel && \
+    /opt/venv/bin/pip install --no-cache-dir .
+
+# Stage 2: Minimal runtime image
+FROM python:3.13-slim AS runner
+WORKDIR /app
+ARG GIT_SHA=unknown
+ENV PATH="/opt/venv/bin:$PATH" \
+    PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    ENVIRONMENT=production \
+    APP_GIT_SHA=${GIT_SHA}
+
+RUN groupadd -g 10001 orchestra && useradd -u 10001 -g orchestra -s /bin/bash -m orchestra
+RUN mkdir -p /app/data/storage /app/workspaces && chown -R orchestra:orchestra /app/data /app/workspaces
+
+COPY --from=builder /opt/venv /opt/venv
+COPY --chown=orchestra:orchestra backend/app /app/app
+COPY --chown=orchestra:orchestra backend/alembic /app/alembic
+COPY --chown=orchestra:orchestra backend/alembic.ini /app/alembic.ini
+
+USER orchestra
+EXPOSE 8000
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "2", "--proxy-headers", "--forwarded-allow-ips=*"]
