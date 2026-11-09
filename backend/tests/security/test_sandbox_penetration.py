@@ -176,3 +176,42 @@ async def test_git_log_limit_bounding(temp_workspace: Path):
         await log_tool.execute({"limit": -5}, trace_id="sec_test")
     with pytest.raises(ValidationError):
         await log_tool.execute({"limit": 1000}, trace_id="sec_test")
+
+
+# 9. Cross-Platform Mixed-Separator, Absolute, and Tool Boundary Regressions
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "cross_platform_payload",
+    [
+        "..\\secret",
+        "..\\..\\windows\\win.ini",
+        "foo/..\\..\\bar.txt",
+        "foo\\..\\..\\bar.txt",
+        "foo\\../..\\secret",
+        "a\\b/../../outside.txt",
+        "/etc/passwd",
+        "\\Windows\\System32\\drivers\\etc\\hosts",
+        "C:/Windows/System32/cmd.exe",
+        "C:\\Windows\\System32\\cmd.exe",
+        "C:autoexec.bat",
+    ],
+)
+async def test_cross_platform_path_security_regression(temp_workspace: Path, cross_platform_payload: str):
+    with pytest.raises(ValidationError):
+        resolve_safe_path(temp_workspace, cross_platform_payload)
+
+    read_tool = ReadFileTool(str(temp_workspace))
+    with pytest.raises(ValidationError):
+        await read_tool.execute({"path": cross_platform_payload}, trace_id="sec_test")
+
+    write_tool = WriteFileTool(str(temp_workspace))
+    with pytest.raises(ValidationError):
+        await write_tool.execute({"path": cross_platform_payload, "content": "x"}, trace_id="sec_test")
+
+    list_tool = ListFilesTool(str(temp_workspace))
+    with pytest.raises(ValidationError):
+        await list_tool.execute({"path": cross_platform_payload}, trace_id="sec_test")
+
+    diff_tool = GitDiffTool(str(temp_workspace))
+    with pytest.raises(ValidationError):
+        await diff_tool.execute({"file": cross_platform_payload}, trace_id="sec_test")

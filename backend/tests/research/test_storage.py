@@ -89,3 +89,20 @@ def test_storage_absolute_path_escape_rejected(tmp_path: Path):
 
     with pytest.raises(ValueError):
         backend._resolve_key("")
+
+
+def test_storage_cross_platform_backslash_and_drive_rejected(tmp_path: Path):
+    """Verifies backslash traversal, mixed separators, UNC, and Windows drive keys are rejected on all hosts."""
+    backend = LocalStorageBackend(root_dir=tmp_path)
+    for key in [
+        "..\\..\\outside.txt",
+        "projects\\..\\..\\outside.txt",
+        "projects/..\\..\\outside.txt",
+        "C:\\secrets\\doc.txt",
+        "C:doc.txt",
+        "\\\\server\\share\\doc.txt",
+    ]:
+        with pytest.raises(ValueError, match="Path traversal detected"):
+            backend.save(b"malicious", key)
+        with pytest.raises(ValueError, match="Path traversal detected"):
+            backend._resolve_key(key)

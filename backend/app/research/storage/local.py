@@ -1,11 +1,14 @@
 import logging
-from pathlib import Path
+import re
+from pathlib import Path, PureWindowsPath
 from typing import Optional
 
 from app.core.config import settings
 from app.research.storage.base import StorageBackend
 
 logger = logging.getLogger(__name__)
+WINDOWS_DRIVE_PREFIX = re.compile(r"^[A-Za-z]:")
+SEPARATOR_SPLIT = re.compile(r"[/\\]+")
 
 
 class LocalStorageBackend(StorageBackend):
@@ -22,7 +25,7 @@ class LocalStorageBackend(StorageBackend):
     def _resolve_key(self, storage_key: str) -> Path:
         """
         Resolves storage_key relative to root_dir, strictly rejecting path traversal,
-        null bytes, and escapes outside canonical root.
+        null bytes, Windows/POSIX separator escapes, symlinks, and escapes outside canonical root.
         """
         if not storage_key or not isinstance(storage_key, str):
             raise ValueError("Storage key must be a non-empty string")
@@ -30,10 +33,39 @@ class LocalStorageBackend(StorageBackend):
         if "\0" in storage_key:
             raise ValueError("Path traversal detected: null byte in storage key")
 
-        # Normalize key and resolve relative to root_dir
-        # Strip leading slashes to prevent root escapes
-        clean_key = storage_key.strip().lstrip("/\\")
-        candidate_path = (self.root_dir / clean_key).resolve()
+        raw_key = storage_key.strip()
+        if len(raw_key) >= 2 and raw_key[0] in ("/", "\\") and raw_key[1] in ("/", "\\"):
+            raise ValueError("Path traversal detected: UNC path in storage key")
+        if WINDOWS_DRIVE_PREFIX.match(raw_key) or PureWindowsPath(raw_key).drive:
+            raise ValueError("Path traversal detected: drive path in storage key")
+
+        # Strip leading slashes to prevent root escapes while checking all segments across / and \
+        clean_key = raw_key.lstrip("/\\")
+        if not clean_key:
+            raise ValueError("Path traversal detected: resolved path escapes storage root")
+
+        clean_parts = []
+        for seg in SEPARATOR_SPLIT.split(clean_key):
+            if not seg or seg == ".":
+                continue
+            if seg == ".." or seg.strip() == ".." or (len(seg.rstrip(" ")) >= 2 and set(seg.rstrip(" ")) == {"."}):
+                raise ValueError("Path traversal detected: resolved path escapes storage root")
+            clean_parts.append(seg)
+
+        if not clean_parts:
+            raise ValueError("Path traversal detected: resolved path escapes storage root")
+
+        curr = self.root_dir
+        for part in clean_parts:
+            curr = curr / part
+            is_junction = getattr(curr, "is_junction", None)
+            if curr.is_symlink() or (callable(is_junction) and is_junction()):
+                try:
+                    curr.resolve(strict=False).relative_to(self.root_dir)
+                except (OSError, RuntimeError, ValueError):
+                    raise ValueError("Path traversal detected: resolved path escapes storage root")
+
+        candidate_path = self.root_dir.joinpath(*clean_parts).resolve()
 
         try:
             if not candidate_path.is_relative_to(self.root_dir) or candidate_path == self.root_dir:

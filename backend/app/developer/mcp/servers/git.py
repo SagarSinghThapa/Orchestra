@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any, Dict
 
 from app.developer.mcp.tools.base import BaseTool
+from app.developer.mcp.utils.sandbox import resolve_safe_path
 from app.developer.schemas import ToolRegistration
 from app.developer.errors import InternalError, ValidationError, TimeoutError
 
@@ -148,8 +149,12 @@ class GitDiffTool(GitBaseTool):
             # Guard against flag injection
             if file_arg.startswith("-"):
                 raise ValidationError(f"Invalid file path for git diff: '{file_arg}' cannot start with a dash.")
-            # Use positional barrier -- to prevent any interpretation as flags
-            args.extend(["--", file_arg])
+            if file_arg:
+                root_path = Path(self.workspace_root).resolve(strict=False)
+                resolved_target = resolve_safe_path(root_path, file_arg)
+                rel_arg = resolved_target.relative_to(root_path).as_posix()
+                # Use positional barrier -- to prevent any interpretation as flags
+                args.extend(["--", rel_arg])
         return await self._run_git_command(*args)
 
 

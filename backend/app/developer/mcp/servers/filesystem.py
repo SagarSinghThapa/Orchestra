@@ -122,11 +122,18 @@ class ListFilesTool(BaseTool):
             raise InternalError(f"Directory not found: {arguments['path']}")
 
         try:
+            root_path = Path(self.workspace_root).resolve(strict=False)
             files = []
             count = 0
             for item in sorted(target_path.iterdir(), key=lambda p: p.name):
                 if count >= MAX_DIRECTORY_ENTRIES:
                     break
+                # Guard against following symlinks/junctions escaping the workspace root
+                if item.is_symlink():
+                    try:
+                        item.resolve(strict=False).relative_to(root_path)
+                    except ValueError:
+                        continue
                 files.append({
                     "name": item.name,
                     "is_dir": item.is_dir(),
@@ -169,7 +176,7 @@ class SearchFilesTool(BaseTool):
         matches = []
         base_depth = len(target_path.parts)
 
-        for root, dirs, files in os.walk(target_path):
+        for root, dirs, files in os.walk(target_path, followlinks=False):
             dirs[:] = [d for d in dirs if not d.startswith('.') and d.lower() not in IGNORED_SEARCH_DIRS]
 
             current_depth = len(Path(root).parts) - base_depth
@@ -181,6 +188,10 @@ class SearchFilesTool(BaseTool):
                 if pattern in file:
                     full_path = os.path.join(root, file)
                     rel_path = os.path.relpath(full_path, start=self.workspace_root)
+                    try:
+                        resolve_safe_path(self.workspace_root, rel_path)
+                    except ValidationError:
+                        continue
                     matches.append(rel_path.replace("\\", "/"))
                     if len(matches) >= MAX_SEARCH_RESULTS:
                         return matches
@@ -220,11 +231,10 @@ class WriteFileTool(BaseTool):
                 f"Write content size ({content_bytes} bytes) exceeds maximum allowable limit ({MAX_WRITE_SIZE_BYTES} bytes)."
             )
 
-        target_path = resolve_safe_path(self.workspace_root, arguments["path"])
-
-        # Enforce in-process per-workspace lock around hash-check and atomic write sequence
+        # Enforce in-process per-workspace lock around path containment, hash-check, and atomic write sequence
         lock = get_workspace_lock(self.workspace_root)
         async with lock:
+            target_path = resolve_safe_path(self.workspace_root, arguments["path"])
             target_existed = target_path.exists()
             original_hash = None
 

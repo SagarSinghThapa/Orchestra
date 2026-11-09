@@ -193,6 +193,67 @@ def test_resolve_safe_path_symlink_containment(tmp_path):
     assert "Symlink traversal detected" in exc.value.message
 
 
+def test_resolve_safe_path_nested_symlink_escape(tmp_path):
+    root = tmp_path / "workspace"
+    (root / "nested" / "deep").mkdir(parents=True)
+    outside = tmp_path / "outside"
+    outside.mkdir()
+    (outside / "secret.txt").write_text("classified", encoding="utf-8")
+
+    nested_link = root / "nested" / "deep" / "link_out"
+    dangling_link = root / "nested" / "dangling_out"
+    try:
+        os.symlink(str(outside), str(nested_link), target_is_directory=True)
+        os.symlink(str(outside / "nonexistent.txt"), str(dangling_link), target_is_directory=False)
+    except (OSError, NotImplementedError):
+        pytest.skip("Symlink creation not permitted in this OS/user environment")
+
+    with pytest.raises(ValidationError) as exc_nested:
+        resolve_safe_path(root, "nested/deep/link_out/secret.txt")
+    assert "Symlink traversal detected" in exc_nested.value.message
+
+    with pytest.raises(ValidationError) as exc_dangling:
+        resolve_safe_path(root, "nested/dangling_out")
+    assert "Symlink traversal detected" in exc_dangling.value.message
+
+
+def test_resolve_safe_path_cross_platform_sensitive_backslash_blocked(tmp_path):
+    root = tmp_path / "workspace"
+    root.mkdir()
+
+    for target in [".git\\config", ".ssh\\id_rsa", "sub\\.env", "sub\\credentials.json"]:
+        with pytest.raises(ValidationError) as exc:
+            resolve_safe_path(root, target)
+        assert "prohibited" in exc.value.message
+
+    with pytest.raises(ValidationError) as exc_res:
+        resolve_safe_path(root, "sub\\CON.txt")
+    assert "reserved system name" in exc_res.value.message
+
+    with pytest.raises(ValidationError) as exc_ads:
+        resolve_safe_path(root, "sub\\file.txt:hidden")
+    assert "Alternate Data Stream" in exc_ads.value.message
+
+
+def test_resolve_safe_path_safe_nested_and_legal_filenames(tmp_path):
+    root = tmp_path / "workspace"
+    root.mkdir()
+
+    safe_targets = [
+        ("src/utils/helper.py", root.resolve() / "src" / "utils" / "helper.py"),
+        ("backend/app/developer/mcp/utils/sandbox.py", root.resolve() / "backend" / "app" / "developer" / "mcp" / "utils" / "sandbox.py"),
+        ("my-file_v1.2.py", root.resolve() / "my-file_v1.2.py"),
+        ("docs/report 2026 (final) [v2].md", root.resolve() / "docs" / "report 2026 (final) [v2].md"),
+        ("notes/file..name.txt", root.resolve() / "notes" / "file..name.txt"),
+        (".gitignore", root.resolve() / ".gitignore"),
+    ]
+
+    for rel_input, expected in safe_targets:
+        resolved = resolve_safe_path(root, rel_input)
+        assert resolved == expected
+        assert resolved.is_relative_to(root.resolve())
+
+
 # =====================================================================
 # 3. Developer Schemas Validation Tests
 # =====================================================================
