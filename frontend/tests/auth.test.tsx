@@ -4,7 +4,6 @@ import { render, screen, act, fireEvent } from "@testing-library/react";
 import { AuthProvider, useAuth } from "@/features/auth/AuthContext";
 import { sanitizeRedirectUrl } from "@/features/auth/ProtectedRoute";
 import LoginPage from "@/app/login/page";
-import { api, ApiError } from "@/services/apiClient";
 
 const mockPush = vi.fn();
 
@@ -126,7 +125,7 @@ describe("Authentication & Route Protection Architecture", () => {
   });
 
   it("submits sanitized lowercase and trimmed email on login", async () => {
-    let capturedBody: any = null;
+    let capturedBody: { email?: string; password?: string } | null = null;
     global.fetch = vi.fn().mockImplementation(async (url: string, init?: RequestInit) => {
       if (url.includes("/auth/login")) {
         capturedBody = JSON.parse(init?.body as string);
@@ -163,7 +162,8 @@ describe("Authentication & Route Protection Architecture", () => {
     });
 
     expect(capturedBody).not.toBeNull();
-    expect(capturedBody.email).toBe("sanitized_user@orchestra.ai");
+    const payload = capturedBody as { email?: string; password?: string } | null;
+    expect(payload?.email).toBe("sanitized_user@orchestra.ai");
   });
 
   it("displays rate-limit alert with guidance when backend returns 429", async () => {
