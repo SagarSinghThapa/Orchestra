@@ -22,6 +22,7 @@ from app.orchestrator.schemas import (
     OrchestratorResponse,
     OrchestratorState,
 )
+from app.schemas.message_payload import serialize_assistant_payload
 from app.research.llm.base import LLMProvider
 from app.research.llm.provider import get_llm_provider
 from app.research.schemas import ResearchRequest, ResearchResponse
@@ -186,10 +187,44 @@ class OrchestratorService:
                 self.db.commit()
 
                 answer_text = final_state.get("answer", "")
+                intent_val = final_state.get("intent") or IntentType.DIRECT_QA.value
+                if isinstance(intent_val, IntentType):
+                    intent_val = intent_val.value
+
+                if intent_val == IntentType.RESEARCH.value:
+                    research_raw = final_state.get("research_result") or {}
+                    if hasattr(research_raw, "model_dump"):
+                        research_raw = research_raw.model_dump()
+                    assistant_content = serialize_assistant_payload(
+                        intent=IntentType.RESEARCH.value,
+                        answer=answer_text,
+                        citations=research_raw.get("citations", []),
+                        claims=research_raw.get("claims", []),
+                        status=research_raw.get("status", "completed"),
+                        question=research_raw.get("question", request.prompt),
+                        metadata=research_raw.get("metadata", {}),
+                    )
+                elif intent_val == IntentType.DEVELOPER.value:
+                    dev_raw = final_state.get("developer_result") or {}
+                    if hasattr(dev_raw, "model_dump"):
+                        dev_raw = dev_raw.model_dump()
+                    assistant_content = serialize_assistant_payload(
+                        intent=IntentType.DEVELOPER.value,
+                        answer=answer_text or dev_raw.get("summary", ""),
+                        status=dev_raw.get("status", "completed"),
+                        metadata={
+                            "patches": dev_raw.get("proposed_patches", []),
+                            "proposed_patches": dev_raw.get("proposed_patches", []),
+                            "files_analyzed": dev_raw.get("files_analyzed", []),
+                        },
+                    )
+                else:
+                    assistant_content = answer_text
+
                 assistant_message = MessageModel(
                     session_id=session.id,
                     role="assistant",
-                    content=answer_text,
+                    content=assistant_content,
                 )
                 self.db.add(assistant_message)
                 self.db.commit()
@@ -455,10 +490,35 @@ class OrchestratorService:
             self.db.commit()
 
             final_answer = scrub_secrets(accumulated_text.strip())
+
+            if intent == IntentType.RESEARCH and research_result:
+                assistant_content = serialize_assistant_payload(
+                    intent=IntentType.RESEARCH.value,
+                    answer=final_answer,
+                    citations=research_result.get("citations", []),
+                    claims=research_result.get("claims", []),
+                    status=research_result.get("status", "completed"),
+                    question=research_result.get("question", request.prompt),
+                    metadata=research_result.get("metadata", {}),
+                )
+            elif intent == IntentType.DEVELOPER and developer_result:
+                assistant_content = serialize_assistant_payload(
+                    intent=IntentType.DEVELOPER.value,
+                    answer=final_answer,
+                    status=developer_result.get("status", "completed"),
+                    metadata={
+                        "patches": developer_result.get("proposed_patches", []),
+                        "proposed_patches": developer_result.get("proposed_patches", []),
+                        "files_analyzed": developer_result.get("files_analyzed", []),
+                    },
+                )
+            else:
+                assistant_content = final_answer
+
             assistant_message = MessageModel(
                 session_id=session.id,
                 role="assistant",
-                content=final_answer,
+                content=assistant_content,
             )
             self.db.add(assistant_message)
             self.db.commit()

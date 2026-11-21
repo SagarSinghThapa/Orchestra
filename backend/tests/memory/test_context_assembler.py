@@ -205,3 +205,42 @@ def test_assembler_format_for_prompt(db_session: Session, test_session: DBSessio
     assert "<RECENT_MESSAGES>" in formatted
     assert "</SYSTEM_CONTEXT>" in formatted
 
+
+def test_assembler_unwraps_structured_json_to_plain_text(
+    db_session: Session, test_session: DBSession, test_project: Project
+):
+    """Verifies that structured JSON messages are unwrapped to clean answer text in context assembler."""
+    from app.schemas.message_payload import serialize_assistant_payload
+
+    # Add a user question
+    user_msg = MessageModel(
+        session_id=test_session.id,
+        role="user",
+        content="What is Orchestra's agent architecture?",
+    )
+    # Add a structured research assistant turn
+    structured_content = serialize_assistant_payload(
+        intent="research",
+        answer="Orchestra uses a multi-agent LangGraph architecture.",
+        citations=[{"citation_id": "c1", "text": "Huge citation raw chunk..."}],
+        claims=[{"claim_text": "Claim", "citation_ids": ["c1"]}],
+    )
+    asst_msg = MessageModel(
+        session_id=test_session.id,
+        role="assistant",
+        content=structured_content,
+    )
+    db_session.add(user_msg)
+    db_session.add(asst_msg)
+    db_session.commit()
+
+    assembler = ContextAssembler(db=db_session)
+    ctx = assembler.assemble(session_id=test_session.id, project_id=test_project.id)
+
+    # Must contain the clean answer, NOT the raw JSON or citations!
+    asst_turn = next(m for m in ctx.recent_messages if m["role"] == "assistant")
+    assert asst_turn["content"] == "Orchestra uses a multi-agent LangGraph architecture."
+    assert "Huge citation raw chunk" not in asst_turn["content"]
+    assert '{"version":' not in asst_turn["content"]
+
+

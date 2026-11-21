@@ -3,6 +3,7 @@
 import React, { useState } from "react";
 import { Message, ResearchResponse } from "@/types/chat";
 import { DeveloperResponse } from "@/types/developer";
+import { parseMessageContent } from "@/utils/messagePayload";
 import { SafeMarkdown } from "./SafeMarkdown";
 import { AgentResponseCard } from "./AgentResponseCard";
 
@@ -72,48 +73,23 @@ export function MessageBubble({ message, projectId, onRetry }: MessageBubbleProp
   let effectiveContent = message.content || "";
   let derivedIntent = message.intent;
 
-  // Intercept raw structured JSON from historical or un-hydrated messages
+  // Intercept raw structured JSON from historical or un-hydrated messages via shared parser
   if (typeof effectiveContent === "string") {
-    const trimmed = effectiveContent.trim();
-    if (trimmed.startsWith("{") && trimmed.endsWith("}")) {
-      try {
-        const parsed = JSON.parse(trimmed);
-        if (parsed && typeof parsed === "object") {
-          // Case 1: Developer response JSON
-          if (
-            "status" in parsed &&
-            ("summary" in parsed || "patches" in parsed || "proposed_patches" in parsed)
-          ) {
-            if (!effectiveDevResult) {
-              effectiveDevResult = {
-                status: parsed.status || "success",
-                task_type: parsed.task_type || "code_gen",
-                mode: parsed.mode || "preview",
-                summary: parsed.summary || "",
-                files_analyzed: parsed.files_analyzed || [],
-                proposed_patches: parsed.proposed_patches || parsed.patches || [],
-                documentation: parsed.documentation || null,
-                warnings: parsed.warnings || [],
-                tool_events: parsed.tool_events || [],
-                metadata: parsed.metadata || {},
-              };
-            }
-            if (!derivedIntent) derivedIntent = "developer";
-            // Do NOT render raw JSON in markdown!
-            effectiveContent = "";
-          }
-          // Case 2: Research response JSON
-          else if ("answer" in parsed && "citations" in parsed) {
-            if (!effectiveResearchResult) {
-              effectiveResearchResult = parsed as ResearchResponse;
-            }
-            if (!derivedIntent) derivedIntent = "research";
-            // Render the clean answer text rather than raw JSON
-            effectiveContent = parsed.answer || "";
-          }
-        }
-      } catch {
-        // Not valid JSON, keep as normal markdown
+    const parsedPayload = parseMessageContent(effectiveContent);
+    if (parsedPayload.isStructured) {
+      if (!effectiveResearchResult && parsedPayload.researchResult) {
+        effectiveResearchResult = parsedPayload.researchResult;
+      }
+      if (!effectiveDevResult && parsedPayload.developerResult) {
+        effectiveDevResult = parsedPayload.developerResult;
+      }
+      if (!derivedIntent && parsedPayload.intent) {
+        derivedIntent = parsedPayload.intent;
+      }
+      if (parsedPayload.intent === "developer" && (effectiveDevResult?.summary || effectiveDevResult?.proposed_patches?.length)) {
+        effectiveContent = "";
+      } else {
+        effectiveContent = parsedPayload.displayText;
       }
     }
   }

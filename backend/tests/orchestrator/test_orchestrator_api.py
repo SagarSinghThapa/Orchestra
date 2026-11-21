@@ -6,8 +6,9 @@ from sqlalchemy.orm import Session
 
 from app.api.orchestrator import get_orchestrator_service
 from app.main import app
+from app.models.message import Message as MessageModel
 from app.models.project import Project
-from app.models.user import User
+from app.models.user import User, UserRole
 from app.orchestrator.classifier import IntentClassifier
 from app.orchestrator.direct_qa import DirectQAEngine
 from app.orchestrator.schemas import (
@@ -311,3 +312,62 @@ class TestOrchestratorAPI:
         )
         assert response.status_code == status.HTTP_504_GATEWAY_TIMEOUT
         assert "timed out" in response.json()["detail"].lower()
+
+    def test_orchestrator_persists_research_citations_sync(
+        self,
+        client: TestClient,
+        set_auth,
+        test_user: User,
+        test_project: Project,
+        db_session: Session,
+        mock_orchestrator_service,
+    ):
+        """Verifies assistant message persists structured JSON with citations for research turns."""
+        service, mock_research, _, _ = mock_orchestrator_service
+        app.dependency_overrides[get_orchestrator_service] = lambda: service
+        set_auth(test_user)
+
+        payload = {
+            "prompt": "What are transformer attention mechanisms?",
+            "research_params": {"response_depth": "standard"},
+        }
+        resp = client.post(f"/projects/{test_project.id}/orchestrate", json=payload)
+        assert resp.status_code == status.HTTP_200_OK
+        sess_id = resp.json()["session_id"]
+
+        # Check DB message persistence
+        msg = (
+            db_session.query(MessageModel)
+            .filter(MessageModel.session_id == sess_id, MessageModel.role == "assistant")
+            .first()
+        )
+        assert msg is not None
+        assert msg.content.startswith('{"version":')
+
+    def test_cross_account_isolation_enforced(
+        self,
+        client: TestClient,
+        set_auth,
+        test_user: User,
+        test_project: Project,
+        db_session: Session,
+    ):
+        """Verifies User B cannot orchestrate against User A's project (returns 404)."""
+        other_user = User(
+            email="other_tenant@orchestra.ai",
+            password_hash="hash",
+            role=UserRole.MEMBER.value,
+        )
+        db_session.add(other_user)
+        db_session.commit()
+
+        # Authenticate as other_user
+        set_auth(other_user)
+
+        # Attempt to orchestrate on test_project (owned by test_user)
+        resp = client.post(
+            f"/projects/{test_project.id}/orchestrate",
+            json={"prompt": "Unauthorized prompt"},
+        )
+        assert resp.status_code == status.HTTP_404_NOT_FOUND
+

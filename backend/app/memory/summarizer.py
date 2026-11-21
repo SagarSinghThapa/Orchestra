@@ -11,6 +11,7 @@ from app.memory.schemas import ContextAssemblerConfig, SummarizationResponse
 from app.models.message import Message as MessageModel
 from app.models.session_summary import SessionSummary
 from app.research.llm.base import LLMProvider
+from app.schemas.message_payload import extract_plain_content
 
 logger = logging.getLogger("orchestra.memory.summarizer")
 
@@ -97,7 +98,8 @@ class SummarizerService:
         batch: list[MessageModel] = []
         batch_chars = 0
         for m in candidates[: self.config.max_messages_per_summarization]:
-            m_len = len(m.content or "")
+            plain_text = extract_plain_content(m.content or "")
+            m_len = len(plain_text)
             if batch and (batch_chars + m_len > self.config.max_summarization_input_chars):
                 break
             batch.append(m)
@@ -114,7 +116,7 @@ class SummarizerService:
 
         # 6. Apply secret scrubbing before text enters prompt
         batch_dicts = [
-            {"role": m.role, "content": scrub_secrets(m.content or "")}
+            {"role": m.role, "content": scrub_secrets(extract_plain_content(m.content or ""))}
             for m in batch
         ]
         existing_summary_text = scrub_secrets(summary_row.summary_text) if summary_row else None
