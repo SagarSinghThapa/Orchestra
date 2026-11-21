@@ -198,4 +198,80 @@ describe("Wave 14.6.2 & Visual Reconcile: Stitch Chat Workspace & Presentation L
     fireEvent.keyDown(window, { key: "Escape" });
     expect(onClose).toHaveBeenCalled();
   });
+
+  it("SessionSidebar renders descriptive session title when available", () => {
+    const sessions = [
+      {
+        id: 42,
+        project_id: 1,
+        type: "research",
+        status: "completed",
+        title: "Quantum Computing Hardware Overview",
+        created_at: new Date().toISOString(),
+      },
+    ];
+
+    render(
+      <SessionSidebar
+        isOpen={true}
+        onClose={vi.fn()}
+        sessions={sessions}
+        activeSessionId={42}
+        onSelectSession={vi.fn()}
+        onNewChat={vi.fn()}
+      />
+    );
+
+    expect(screen.getByText("Quantum Computing Hardware Overview")).toBeInTheDocument();
+  });
+
+  it("MessageBubble hydrates historical research JSON and displays Research Intelligence badge with citations", () => {
+    const researchJsonPayload = JSON.stringify({
+      version: 1,
+      intent: "research",
+      answer: "Transformer attention calculates scaled dot-product similarity.",
+      status: "completed",
+      question: "How does attention work?",
+      citations: [
+        {
+          citation_id: "cit-1",
+          evidence_id: "ev-1",
+          document_id: 10,
+          document_filename: "attention_is_all_you_need.pdf",
+          page_number: 3,
+          chunk_id: "chk-1",
+          start_char: 0,
+          end_char: 80,
+          text: "Scaled Dot-Product Attention mechanism explained.",
+          score: 0.96,
+        },
+      ],
+      claims: [
+        {
+          claim_text: "Scaled dot product similarity is used.",
+          citation_ids: ["cit-1"],
+        },
+      ],
+    });
+
+    const historicalMessage: Message = {
+      id: 101,
+      role: "assistant",
+      content: researchJsonPayload,
+    };
+
+    render(<MessageBubble message={historicalMessage} />);
+
+    // Renders the Research Intelligence badge
+    expect(screen.getByText("Research Intelligence")).toBeInTheDocument();
+
+    // Renders the markdown answer text
+    expect(
+      screen.getByText(/Transformer attention calculates scaled dot-product similarity/)
+    ).toBeInTheDocument();
+
+    // Renders the citations section from AgentResponseCard
+    expect(screen.getByText(/Verified Citations/i)).toBeInTheDocument();
+    expect(screen.getByText("attention_is_all_you_need.pdf")).toBeInTheDocument();
+  });
 });

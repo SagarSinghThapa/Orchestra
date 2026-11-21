@@ -1,7 +1,9 @@
+import logging
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response, status
 from jose import JWTError
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.auth.dependencies import get_current_user
@@ -15,6 +17,8 @@ from app.schemas.auth import (
     RegisterRequest,
     UserResponse,
 )
+
+logger = logging.getLogger("orchestra.auth")
 
 router = APIRouter(
     prefix="/auth",
@@ -37,9 +41,10 @@ def register(
     Public endpoint. Enforces unique email, hashes password with direct native bcrypt,
     and returns safe user representation without exposing password hashes.
     """
+    clean_email = request.email.strip().lower()
     existing_user = (
         db.query(User)
-        .filter(User.email == request.email)
+        .filter(func.lower(User.email) == clean_email)
         .first()
     )
 
@@ -50,7 +55,7 @@ def register(
         )
 
     user = User(
-        email=request.email,
+        email=clean_email,
         password_hash=hash_password(request.password),
         role=UserRole.MEMBER.value,
     )
@@ -99,11 +104,42 @@ async def login(
             detail="Invalid email or password",
         )
 
+    username_raw = username.strip()
+    username_lower = username_raw.lower()
+
+    # Tier 1: Exact match first (preserves legacy account affinity)
     user = (
         db.query(User)
-        .filter(User.email == username)
+        .filter(User.email == username_raw)
         .first()
     )
+
+    # Tier 2: Safe case-insensitive fallback ONLY if no exact match found
+    if not user:
+        candidates = (
+            db.query(User)
+            .filter(func.lower(User.email) == username_lower)
+            .all()
+        )
+        if len(candidates) == 1:
+            user = candidates[0]
+        elif len(candidates) > 1:
+            # COLLISION DETECTED: FAIL CLOSED!
+            # Never automatically select any account (including the oldest).
+            # Never merge or mutate existing accounts automatically.
+            # Log internal structured security alert with candidate IDs for manual operator resolution:
+            logger.warning(
+                "SECURITY ALERT: Case-insensitive email collision detected during login for '%s' "
+                "(candidate IDs: %s). Failing closed to prevent account hijacking or data bleed.",
+                username_lower,
+                [c.id for c in candidates],
+            )
+            # Require manual collision resolution. Zero information disclosure in public error.
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid email or password",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
 
     if not user or not verify_password(password, user.password_hash):
         raise HTTPException(

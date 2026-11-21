@@ -65,6 +65,8 @@ export interface SessionItem {
   project_id: number;
   type: string;
   status: string;
+  title?: string;
+  query?: string;
   created_at: string;
   updated_at?: string;
 }

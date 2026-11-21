@@ -5,6 +5,7 @@ from app.developer.prompts.escaping import escape_prompt_data
 from app.memory.schemas import ContextAssemblerConfig, MemoryContext
 from app.models.message import Message as MessageModel
 from app.models.session_summary import SessionSummary
+from app.schemas.message_payload import extract_plain_content
 
 
 class ContextAssembler:
@@ -72,15 +73,16 @@ class ContextAssembler:
         recent_chars = 0
 
         for msg in recent_raw:
-            formatted_len = len(f"[{msg.role}]: {msg.content}\n")
+            content_text = extract_plain_content(msg.content)
+            formatted_len = len(f"[{msg.role}]: {content_text}\n")
             if recent_chars + formatted_len <= recent_budget:
-                selected_messages.append({"role": msg.role, "content": msg.content})
+                selected_messages.append({"role": msg.role, "content": content_text})
                 recent_chars += formatted_len
             elif not selected_messages:
                 # Pathological case: Even the single newest message exceeds the budget!
                 # Strictly truncate it to fit available budget.
                 max_msg_len = max(50, recent_budget - 50)
-                truncated_content = (msg.content[:max_msg_len]) + "... [truncated to fit context budget]"
+                truncated_content = (content_text[:max_msg_len]) + "... [truncated to fit context budget]"
                 selected_messages.append({"role": msg.role, "content": truncated_content})
                 recent_chars += len(truncated_content)
                 break
