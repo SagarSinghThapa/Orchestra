@@ -205,6 +205,35 @@ describe("Authentication & Route Protection Architecture", () => {
     const alert = screen.getByRole("alert");
     expect(alert).toBeInTheDocument();
     expect(alert).toHaveTextContent(/Too many login attempts/i);
-    expect(alert.className).toContain("bg-amber-50");
+    expect(alert.className).toContain("bg-amber-950/40");
+  });
+
+  it("renders dark Stitch design tokens with high-contrast inputs and mode toggle", async () => {
+    let container: HTMLElement = document.createElement("div");
+    await act(async () => {
+      const res = render(
+        <AuthProvider>
+          <LoginPage />
+        </AuthProvider>
+      );
+      container = res.container;
+    });
+
+    // Canvas has dark workspace gradient
+    const outerContainer = container.firstChild as HTMLElement;
+    expect(outerContainer.className).toContain("bg-[#101014]");
+    expect(outerContainer.className).toContain("workspace-gradient-bg");
+
+    // Inputs have dark background and light text
+    const emailInput = screen.getByPlaceholderText("you@domain.com");
+    expect(emailInput.className).toContain("bg-[#15151B]");
+    expect(emailInput.className).toContain("text-white");
+
+    // Mode buttons
+    const signInButtons = screen.getAllByRole("button", { name: "Sign In" });
+    const createAccountBtn = screen.getByRole("button", { name: "Create Account" });
+    expect(signInButtons.length).toBeGreaterThanOrEqual(1);
+    expect(createAccountBtn).toBeInTheDocument();
+    expect(signInButtons[0].className).toContain("bg-[#5146FF]");
   });
 });
