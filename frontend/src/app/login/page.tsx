@@ -63,25 +63,41 @@ function LoginForm() {
   };
 
   return (
-    <div className="flex items-center justify-center min-h-screen bg-gray-50 px-4">
-      <Card className="w-full max-w-md p-8 space-y-6">
+    <div className="flex items-center justify-center min-h-screen bg-[#101014] workspace-gradient-bg px-4 py-8">
+      <Card className="w-full max-w-md p-6 sm:p-8 space-y-6 bg-[#20212B] border border-white/[0.08] shadow-2xl rounded-2xl text-[#F5F5F5]">
         <div className="text-center">
-          <h1 className="text-3xl font-bold tracking-tight text-gray-900">
+          <div className="inline-flex items-center justify-center w-10 h-10 rounded-xl bg-gradient-to-br from-[#5146FF] to-[#8B7CFF] text-white shadow-lg shadow-indigo-500/20 mb-3">
+            <svg
+              className="w-5 h-5"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+              xmlns="http://www.w3.org/2000/svg"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M13 10V3L4 14h7v7l9-11h-7z"
+              />
+            </svg>
+          </div>
+          <h1 className="text-2xl font-bold tracking-tight text-[#F8F8FC]">
             {mode === "login" ? "Sign in to Orchestra" : "Create an account"}
           </h1>
-          <p className="mt-2 text-sm text-gray-600">
+          <p className="mt-2 text-sm text-[#A4A6B8]">
             Multi-Agent AI Engineering & Research Platform
           </p>
         </div>
 
         {/* Mode Selector */}
-        <div className="flex rounded-md bg-gray-100 p-1 border">
+        <div className="flex rounded-xl bg-[#15151B] p-1 border border-white/[0.08]">
           <button
             type="button"
-            className={`flex-1 rounded py-1.5 text-sm font-medium transition-colors ${
+            className={`flex-1 rounded-lg py-2 text-sm font-medium transition-all ${
               mode === "login"
-                ? "bg-white text-gray-900 shadow-sm"
-                : "text-gray-500 hover:text-gray-900"
+                ? "bg-[#5146FF] text-white shadow-sm font-semibold"
+                : "text-[#A4A6B8] hover:text-white"
             }`}
             onClick={() => {
               setMode("login");
@@ -93,10 +109,10 @@ function LoginForm() {
           </button>
           <button
             type="button"
-            className={`flex-1 rounded py-1.5 text-sm font-medium transition-colors ${
+            className={`flex-1 rounded-lg py-2 text-sm font-medium transition-all ${
               mode === "register"
-                ? "bg-white text-gray-900 shadow-sm"
-                : "text-gray-500 hover:text-gray-900"
+                ? "bg-[#5146FF] text-white shadow-sm font-semibold"
+                : "text-[#A4A6B8] hover:text-white"
             }`}
             onClick={() => {
               setMode("register");
@@ -111,10 +127,10 @@ function LoginForm() {
         {error && (
           <div
             role="alert"
-            className={`rounded-md p-3 text-sm border ${
+            className={`rounded-lg p-3 text-sm border transition-all ${
               isRateLimited
-                ? "bg-amber-50 text-amber-800 border-amber-200"
-                : "bg-red-50 text-red-700 border-red-200"
+                ? "bg-amber-950/40 text-amber-200 border-amber-600/50"
+                : "bg-red-950/40 text-red-200 border-red-600/50"
             }`}
           >
             {error}
@@ -123,12 +139,14 @@ function LoginForm() {
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
-            <label className="block text-sm font-medium text-gray-700">Email Address</label>
+            <label className="block text-sm font-medium text-[#E0E2EC] mb-1.5">
+              Email Address
+            </label>
             <input
               type="email"
               required
               disabled={submitting}
-              className="mt-1 w-full border border-gray-300 rounded px-3 py-2 text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100"
+              className="w-full rounded-lg bg-[#15151B] border border-white/[0.12] px-3.5 py-2.5 text-white placeholder-[#717384] focus:outline-none focus:border-[#5146FF] focus:ring-1 focus:ring-[#5146FF] transition-all disabled:opacity-50 disabled:bg-[#15151B]/50"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               placeholder="you@domain.com"
@@ -136,19 +154,25 @@ function LoginForm() {
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700">Password</label>
+            <label className="block text-sm font-medium text-[#E0E2EC] mb-1.5">
+              Password
+            </label>
             <input
               type="password"
               required
               disabled={submitting}
-              className="mt-1 w-full border border-gray-300 rounded px-3 py-2 text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100"
+              className="w-full rounded-lg bg-[#15151B] border border-white/[0.12] px-3.5 py-2.5 text-white placeholder-[#717384] focus:outline-none focus:border-[#5146FF] focus:ring-1 focus:ring-[#5146FF] transition-all disabled:opacity-50 disabled:bg-[#15151B]/50"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               placeholder="At least 8 characters..."
             />
           </div>
 
-          <Button type="submit" className="w-full justify-center" disabled={submitting}>
+          <Button
+            type="submit"
+            className="w-full justify-center py-2.5 bg-[#5146FF] hover:bg-[#4338CA] text-white font-medium rounded-lg shadow-lg shadow-indigo-500/25 transition-all focus:outline-none focus:ring-2 focus:ring-[#5146FF] focus:ring-offset-2 focus:ring-offset-[#20212B] disabled:opacity-50"
+            disabled={submitting}
+          >
             {submitting ? "Please wait..." : mode === "login" ? "Sign In" : "Register"}
           </Button>
         </form>
@@ -161,8 +185,8 @@ export default function LoginPage() {
   return (
     <Suspense
       fallback={
-        <div className="flex min-h-screen items-center justify-center bg-gray-50">
-          <p className="text-gray-500">Loading authentication...</p>
+        <div className="flex min-h-screen items-center justify-center bg-[#101014] text-[#A4A6B8]">
+          <p className="text-[#A4A6B8]">Loading authentication...</p>
         </div>
       }
     >

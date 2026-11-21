@@ -1,3 +1,4 @@
+import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Optional, Union
 
@@ -36,6 +37,7 @@ def create_access_token(
     mins = expires_minutes if expires_minutes is not None else settings.access_token_expire_minutes
     expire = datetime.now(timezone.utc) + timedelta(minutes=mins)
     payload["exp"] = expire
+    payload.setdefault("jti", str(uuid.uuid4()))
 
     return jwt.encode(
         payload,
@@ -67,6 +69,7 @@ def create_refresh_token(
     days = expires_days if expires_days is not None else settings.refresh_token_expire_days
     expire = datetime.now(timezone.utc) + timedelta(days=days)
     payload["exp"] = expire
+    payload.setdefault("jti", str(uuid.uuid4()))
 
     return jwt.encode(
         payload,

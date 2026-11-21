@@ -39,3 +39,10 @@ backend/data/
 # OS
 .DS_Store
 Thumbs.db
+
+# TLS / SSL Certificates & Private Keys
+*.key
+*.crt
+*.pem
+nginx/certs/*
+!nginx/certs/.gitkeep

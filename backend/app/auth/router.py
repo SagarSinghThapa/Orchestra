@@ -10,6 +10,8 @@ from app.auth.dependencies import get_current_user
 from app.auth.jwt import create_access_token, create_refresh_token, decode_token
 from app.auth.password import hash_password, verify_password
 from app.core.config import settings
+from app.core.csrf import generate_session_csrf_token
+from app.core.token_blocklist import is_token_revoked, revoke_token, TokenRevocationError
 from app.database.connection import get_db
 from app.models.user import User, UserRole
 from app.schemas.auth import (
@@ -149,6 +151,7 @@ async def login(
 
     access_token = create_access_token(user.id, role=user.role)
     refresh_token = create_refresh_token(user.id)
+    csrf_token = generate_session_csrf_token(user.id)
 
     # Set explicit HttpOnly cookies
     response.set_cookie(
@@ -164,6 +167,15 @@ async def login(
         key="refresh_token",
         value=refresh_token,
         httponly=True,
+        secure=settings.cookie_secure,
+        samesite=settings.cookie_samesite,
+        path="/",
+        max_age=settings.refresh_token_expire_days * 86400,
+    )
+    response.set_cookie(
+        key="csrf_token",
+        value=csrf_token,
+        httponly=False,
         secure=settings.cookie_secure,
         samesite=settings.cookie_samesite,
         path="/",
@@ -227,7 +239,21 @@ async def refresh(
             detail="User not found",
         )
 
+    token_id = payload.get("jti") or raw_refresh_token
+    try:
+        if await is_token_revoked(token_id):
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Refresh token has been revoked",
+            )
+    except TokenRevocationError:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Authentication service unavailable",
+        )
+
     new_access_token = create_access_token(user.id, role=user.role)
+    csrf_token = generate_session_csrf_token(user.id)
 
     response.set_cookie(
         key="access_token",
@@ -238,6 +264,15 @@ async def refresh(
         path="/",
         max_age=settings.access_token_expire_minutes * 60,
     )
+    response.set_cookie(
+        key="csrf_token",
+        value=csrf_token,
+        httponly=False,
+        secure=settings.cookie_secure,
+        samesite=settings.cookie_samesite,
+        path="/",
+        max_age=settings.refresh_token_expire_days * 86400,
+    )
 
     return {
         "access_token": new_access_token,
@@ -246,20 +281,54 @@ async def refresh(
 
 
 @router.post("/logout")
-def logout(response: Response):
+async def logout(
+    request: Request,
+    response: Response,
+):
     """
-    Browser session logout: clears authentication cookies.
-    
-    Note: Stateless JWT tokens remain cryptographically valid until expiration;
-    server-side token revocation / blocklists are deferred to Redis session integration.
+    Browser session logout: clears authentication cookies and revokes tokens server-side.
     """
+    auth_header = request.headers.get("authorization", "")
+    token_to_revoke = None
+    if auth_header.strip().lower().startswith("bearer "):
+        parts = auth_header.split()
+        if len(parts) == 2:
+            token_to_revoke = parts[1]
+
+    access_cookie = request.cookies.get("access_token")
+    refresh_cookie = request.cookies.get("refresh_token")
+
+    tokens_to_revoke = [t for t in (token_to_revoke, access_cookie, refresh_cookie) if t]
+    for t in tokens_to_revoke:
+        try:
+            await revoke_token(t)
+        except TokenRevocationError:
+            if settings.environment.lower() == "production":
+                raise HTTPException(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    detail="Authentication service unavailable",
+                )
+
     response.delete_cookie(
         key="access_token",
         path="/",
+        secure=settings.cookie_secure,
+        samesite=settings.cookie_samesite,
+        httponly=True,
     )
     response.delete_cookie(
         key="refresh_token",
         path="/",
+        secure=settings.cookie_secure,
+        samesite=settings.cookie_samesite,
+        httponly=True,
+    )
+    response.delete_cookie(
+        key="csrf_token",
+        path="/",
+        secure=settings.cookie_secure,
+        samesite=settings.cookie_samesite,
+        httponly=False,
     )
     return {"message": "Logged out successfully"}
 

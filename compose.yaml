@@ -143,6 +143,7 @@ services:
     restart: unless-stopped
     ports:
       - "${ORCHESTRA_PORT:-8080}:8080"
+      - "${ORCHESTRA_SSL_PORT:-8443}:8443"
     depends_on:
       backend:
         condition: service_healthy

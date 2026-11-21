@@ -389,3 +389,193 @@ def test_login_collision_fails_closed_without_information_disclosure(
     assert check_lower.email == "collision_target@orchestra.ai"
     assert check_upper.email == "COLLISION_TARGET@ORCHESTRA.AI"
 
+
+def test_logout_revokes_access_token_replay_rejected(client: TestClient, member_user: User):
+    """Verify that logged-out access tokens cannot be replayed (server-side invalidation)."""
+    login_res = client.post(
+        "/auth/login",
+        json={"email": member_user.email, "password": "MemberSecret123!"},
+    )
+    assert login_res.status_code == 200
+    token = login_res.json()["access_token"]
+
+    # Access token is valid before logout
+    me_res = client.get("/auth/me", headers={"Authorization": f"Bearer {token}"})
+    assert me_res.status_code == 200
+
+    # Perform logout
+    logout_res = client.post("/auth/logout", headers={"Authorization": f"Bearer {token}"})
+    assert logout_res.status_code == 200
+
+    # Token replay must be rejected with 401
+    me_after_res = client.get("/auth/me", headers={"Authorization": f"Bearer {token}"})
+    assert me_after_res.status_code == 401
+    assert "revoked" in me_after_res.json()["detail"].lower()
+
+
+def test_logout_revokes_refresh_token(client: TestClient, member_user: User):
+    """Verify that logged-out refresh tokens cannot be used to generate new access tokens."""
+    login_res = client.post(
+        "/auth/login",
+        json={"email": member_user.email, "password": "MemberSecret123!"},
+    )
+    assert login_res.status_code == 200
+    refresh_token = login_res.json()["refresh_token"]
+
+    # Logout revoking refresh token
+    client.post("/auth/logout", cookies={"refresh_token": refresh_token})
+
+    # Attempt to refresh with revoked refresh token
+    refresh_res = client.post("/auth/refresh", json={"refresh_token": refresh_token})
+    assert refresh_res.status_code == 401
+    assert "revoked" in refresh_res.json()["detail"].lower()
+
+
+def test_csrf_rejects_untrusted_origin_on_cookie_mutation(client: TestClient, member_user: User):
+    """Verify that cookie-authenticated state-changing requests reject untrusted origins."""
+    login_res = client.post(
+        "/auth/login",
+        json={"email": member_user.email, "password": "MemberSecret123!"},
+    )
+    assert login_res.status_code == 200
+    access_cookie = login_res.cookies.get("access_token")
+
+    # Mutating request with untrusted origin
+    mutation_res = client.post(
+        "/sessions",
+        cookies={"access_token": access_cookie},
+        headers={"Origin": "https://evil-untrusted-site.com"},
+        json={"title": "Unauthorized Session", "query": "Test"},
+    )
+    assert mutation_res.status_code == 403
+    assert "CSRF verification failed" in mutation_res.json()["detail"]
+
+
+def test_csrf_rejects_missing_origin_and_referer(client: TestClient, member_user: User):
+    """Verify that cookie-authenticated mutations reject missing origin/referer."""
+    login_res = client.post(
+        "/auth/login",
+        json={"email": member_user.email, "password": "MemberSecret123!"},
+    )
+    assert login_res.status_code == 200
+    access_cookie = login_res.cookies.get("access_token")
+
+    mutation_res = client.post(
+        "/sessions",
+        cookies={"access_token": access_cookie},
+        # No Origin or Referer header supplied
+        json={"title": "Missing Origin Session", "query": "Test"},
+    )
+    assert mutation_res.status_code == 403
+    assert "CSRF verification failed" in mutation_res.json()["detail"]
+
+
+def test_csrf_accepts_trusted_origin_and_session_token(client: TestClient, member_user: User):
+    """Verify that cookie-authenticated mutations succeed with trusted origin and session CSRF token."""
+    login_res = client.post(
+        "/auth/login",
+        json={"email": member_user.email, "password": "MemberSecret123!"},
+    )
+    assert login_res.status_code == 200
+    access_cookie = login_res.cookies.get("access_token")
+    csrf_cookie = login_res.cookies.get("csrf_token")
+    assert csrf_cookie is not None
+
+    mutation_res = client.post(
+        "/sessions",
+        cookies={"access_token": access_cookie, "csrf_token": csrf_cookie},
+        headers={
+            "Origin": "http://localhost:3000",
+            "X-CSRF-Token": csrf_cookie,
+        },
+        json={"title": "Legitimate Session", "query": "How to optimize queries?"},
+    )
+    # Passed CSRF check (fails further downstream on missing project_id, but NOT 403 CSRF rejection)
+    assert mutation_res.status_code != 403
+
+
+def test_production_config_guard_enforces_secure_cookies():
+    """Verify production startup validation rejects insecure cookie override."""
+    from app.core.config import Settings
+
+    # Setting environment=production with cookie_secure=False must raise RuntimeError
+    s = Settings(
+        environment="production",
+        database_url="postgresql+psycopg://user:pass@localhost:5432/db",
+        jwt_secret="prod-secret-32-chars-long-security-key!",
+        cookie_secure=False,
+    )
+    with pytest.raises(RuntimeError, match="COOKIE_SECURE cannot be false in production"):
+        s.validate_runtime_requirements()
+
+
+def test_logout_deletes_both_auth_cookies_with_matching_attributes(client: TestClient, member_user: User):
+    """Verify logout emits Set-Cookie clearing access, refresh, and csrf cookies with Path=/."""
+    res = client.post("/auth/logout")
+    assert res.status_code == 200
+
+    set_cookie_headers = [v for k, v in res.headers.raw if k.lower() == b"set-cookie"]
+    cookie_str = " ".join([h.decode() for h in set_cookie_headers])
+
+    assert "access_token=" in cookie_str
+    assert "refresh_token=" in cookie_str
+    assert "csrf_token=" in cookie_str
+    assert "Path=/" in cookie_str
+
+
+def test_revocation_store_fails_securely_in_production_when_redis_unavailable(
+    client: TestClient, member_user: User, monkeypatch
+):
+    """Verify that in production mode, if Redis is unavailable, token revocation check fails closed."""
+    login_res = client.post(
+        "/auth/login",
+        json={"email": member_user.email, "password": "MemberSecret123!"},
+    )
+    assert login_res.status_code == 200
+    token = login_res.json()["access_token"]
+
+    # Simulate production environment without Redis
+    monkeypatch.setattr(settings, "environment", "production")
+    monkeypatch.setattr("app.core.token_blocklist.get_redis_client", lambda: None)
+
+    # Calling an authenticated route must fail closed with 503 Service Unavailable
+    res = client.get("/auth/me", headers={"Authorization": f"Bearer {token}"})
+    assert res.status_code == 503
+    assert "unavailable" in res.json()["detail"].lower()
+
+
+def test_legacy_orchestra_header_cannot_bypass_csrf_in_production(
+    client: TestClient, member_user: User, monkeypatch
+):
+    """
+    Verify that in production mode, the legacy X-Orchestra-Request header cannot
+    independently bypass CSRF protection without a valid session-bound CSRF token.
+    """
+    login_res = client.post(
+        "/auth/login",
+        json={"email": member_user.email, "password": "MemberSecret123!"},
+    )
+    assert login_res.status_code == 200
+    access_cookie = login_res.cookies.get("access_token")
+
+    # Clear session csrf_token cookie to verify header alone cannot bypass
+    client.cookies.delete("csrf_token")
+
+    monkeypatch.setattr(settings, "environment", "production")
+
+    # Present trusted origin and legacy header, but omit session CSRF token
+    res = client.post(
+        "/sessions",
+        cookies={"access_token": access_cookie},
+        headers={
+            "Origin": "http://localhost:3000",
+            "X-Orchestra-Request": "true",
+        },
+        json={"title": "Test Session", "query": "Test"},
+    )
+    assert res.status_code == 403
+    assert "session csrf token" in res.json()["detail"].lower()
+
+
+
+

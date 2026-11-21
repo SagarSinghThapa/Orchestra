@@ -6,6 +6,7 @@ from jose import JWTError
 from sqlalchemy.orm import Session
 
 from app.auth.jwt import decode_token
+from app.core.token_blocklist import is_token_revoked, TokenRevocationError
 from app.database.connection import get_db
 from app.models.user import User
 
@@ -16,7 +17,7 @@ oauth2_scheme = OAuth2PasswordBearer(
 )
 
 
-def get_current_user(
+async def get_current_user(
     request: Request,
     token: Optional[str] = Depends(oauth2_scheme),
     db: Session = Depends(get_db),
@@ -65,6 +66,21 @@ def get_current_user(
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Could not validate credentials",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+
+        token_id = payload.get("jti") or raw_token
+        try:
+            if await is_token_revoked(token_id):
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Token has been revoked",
+                    headers={"WWW-Authenticate": "Bearer"},
+                )
+        except TokenRevocationError:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Authentication verification service unavailable",
                 headers={"WWW-Authenticate": "Bearer"},
             )
     except JWTError:
