@@ -1,5 +1,5 @@
 from typing import Any, Optional, Union
-from pydantic import field_validator
+from pydantic import field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -155,6 +155,15 @@ class Settings(BaseSettings):
             return list(v)
         return v
 
+    @model_validator(mode="before")
+    @classmethod
+    def set_production_cookie_defaults(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            env = str(data.get("environment") or "").lower()
+            if env == "production" and "cookie_secure" not in data:
+                data["cookie_secure"] = True
+        return data
+
     model_config = SettingsConfigDict(
         env_file=".env",
         env_file_encoding="utf-8",
@@ -178,6 +187,12 @@ class Settings(BaseSettings):
             )
 
         if self.environment == "production":
+            if not self.cookie_secure:
+                raise RuntimeError(
+                    "COOKIE_SECURE cannot be false in production environment. "
+                    "Production deployments strictly mandate Secure cookies over HTTPS."
+                )
+
             if self.embedding_provider == "test":
                 raise RuntimeError(
                     "EMBEDDING_PROVIDER cannot be 'test' in production environment. "

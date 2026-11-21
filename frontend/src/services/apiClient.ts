@@ -52,6 +52,12 @@ export function getBaseUrl(): string {
 let refreshPromise: Promise<void> | null = null;
 let lastRefreshTime = 0;
 
+function getCsrfTokenFromCookie(): string | null {
+  if (typeof document === "undefined") return null;
+  const match = document.cookie.match(/(?:^|;\s*)csrf_token=([^;]+)/);
+  return match ? decodeURIComponent(match[1]) : null;
+}
+
 class ApiAdapter {
   async request<T = unknown>(
     endpoint: string,
@@ -60,10 +66,12 @@ class ApiAdapter {
   ): Promise<T> {
     const requestStartTime = Date.now();
     const isFormData = typeof FormData !== "undefined" && options.body instanceof FormData;
+    const csrfToken = getCsrfTokenFromCookie();
 
     const headers: Record<string, string> = {
       ...(isFormData ? {} : { "Content-Type": "application/json" }),
       "X-Orchestra-Request": "true",
+      ...(csrfToken ? { "X-CSRF-Token": csrfToken } : {}),
       ...((options.headers as Record<string, string>) || {}),
     };
 
