@@ -36,7 +36,8 @@ class RepoTreeTool(BaseTool):
                 "type": "object",
                 "properties": {
                     "path": {"type": "string", "description": "Sub-directory to get tree for."}
-                }
+                },
+                "additionalProperties": False
             }
         )
 
@@ -51,7 +52,7 @@ class RepoTreeTool(BaseTool):
         tree = []
         base_depth = len(target_path.parts)
 
-        for root, dirs, files in os.walk(target_path):
+        for root, dirs, files in os.walk(target_path, followlinks=False):
             # Prune ignored and hidden directories
             dirs[:] = [d for d in dirs if not d.startswith('.') and d.lower() not in EXCLUDED_TREE_DIRS]
             
@@ -69,6 +70,12 @@ class RepoTreeTool(BaseTool):
             subindent = ' ' * 4 * (level + 1)
             for f in sorted(files):
                 if f.startswith('.'):
+                    continue
+                full_entry = os.path.join(root, f)
+                rel_entry = os.path.relpath(full_entry, start=self.workspace_root)
+                try:
+                    resolve_safe_path(self.workspace_root, rel_entry)
+                except ValidationError:
                     continue
                 tree.append(f"{subindent}{f}")
                 if len(tree) >= MAX_TREE_LINES:
@@ -92,7 +99,8 @@ class FileMetadataTool(BaseTool):
                 "properties": {
                     "path": {"type": "string"}
                 },
-                "required": ["path"]
+                "required": ["path"],
+                "additionalProperties": False
             }
         )
 
@@ -126,7 +134,8 @@ class SearchCodeTool(BaseTool):
                 "properties": {
                     "pattern": {"type": "string", "description": "Regex pattern (max 100 chars)"}
                 },
-                "required": ["pattern"]
+                "required": ["pattern"],
+                "additionalProperties": False
             }
         )
 
@@ -150,25 +159,29 @@ class SearchCodeTool(BaseTool):
         target_path = resolve_safe_path(self.workspace_root, "", block_sensitive=False)
         files_scanned = 0
 
-        for root, dirs, files in os.walk(target_path):
+        for root, dirs, files in os.walk(target_path, followlinks=False):
             dirs[:] = [d for d in dirs if not d.startswith('.') and d.lower() not in EXCLUDED_TREE_DIRS]
             
             for file in files:
                 if not file.endswith(('.py', '.js', '.ts', '.tsx', '.jsx', '.md', '.json', '.html', '.css', '.txt')):
                     continue
 
+                full_path = os.path.join(root, file)
+                rel_path = os.path.relpath(full_path, self.workspace_root)
+                try:
+                    safe_file = resolve_safe_path(self.workspace_root, rel_path)
+                except ValidationError:
+                    continue
+
                 files_scanned += 1
                 if files_scanned > MAX_FILES_SCANNED:
                     return results
 
-                full_path = os.path.join(root, file)
-                rel_path = os.path.relpath(full_path, self.workspace_root)
-                
                 # Check size before reading
                 try:
-                    if os.path.getsize(full_path) > 512 * 1024:  # Skip files > 512KB during regex scan
+                    if os.path.getsize(safe_file) > 512 * 1024:  # Skip files > 512KB during regex scan
                         continue
-                    with open(full_path, "r", encoding="utf-8", errors="ignore") as f:
+                    with open(safe_file, "r", encoding="utf-8", errors="ignore") as f:
                         for line_num, line in enumerate(f, 1):
                             if regex.search(line):
                                 trimmed = line.strip()

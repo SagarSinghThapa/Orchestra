@@ -1,0 +1,147 @@
+{
+  "dataset_id": "orchestra_routing_golden",
+  "dataset_version": "1.0.0",
+  "description": "Golden orchestrator routing benchmark evaluating intent classification and fallback accuracy",
+  "cases": [
+    {
+      "case_id": "route_001",
+      "category": "orchestrator",
+      "description": "Clear research query referencing document evidence",
+      "input_data": {
+        "prompt": "What does our research paper say about transformer multi-head attention latency?"
+      },
+      "ground_truth": {
+        "expected_intent": "research"
+      },
+      "metadata": {
+        "intent": "research"
+      }
+    },
+    {
+      "case_id": "route_002",
+      "category": "orchestrator",
+      "description": "Document analysis and literature review request",
+      "input_data": {
+        "prompt": "Summarize the key findings from the uploaded Qdrant architecture PDF."
+      },
+      "ground_truth": {
+        "expected_intent": "research"
+      },
+      "metadata": {
+        "intent": "research"
+      }
+    },
+    {
+      "case_id": "route_003",
+      "category": "orchestrator",
+      "description": "Citation-heavy factual lookup",
+      "input_data": {
+        "prompt": "Find all citations regarding Redis cache eviction policies in our system docs."
+      },
+      "ground_truth": {
+        "expected_intent": "research"
+      },
+      "metadata": {
+        "intent": "research"
+      }
+    },
+    {
+      "case_id": "route_004",
+      "category": "orchestrator",
+      "description": "Explicit coding refactor request",
+      "input_data": {
+        "prompt": "Refactor the calculate_hash function in utils.py to use sha256 instead of md5."
+      },
+      "ground_truth": {
+        "expected_intent": "developer"
+      },
+      "metadata": {
+        "intent": "developer"
+      }
+    },
+    {
+      "case_id": "route_005",
+      "category": "orchestrator",
+      "description": "Bug fix and code patching prompt",
+      "input_data": {
+        "prompt": "Fix the IndexError in parser.py when tokens list is empty."
+      },
+      "ground_truth": {
+        "expected_intent": "developer"
+      },
+      "metadata": {
+        "intent": "developer"
+      }
+    },
+    {
+      "case_id": "route_006",
+      "category": "orchestrator",
+      "description": "API route implementation task",
+      "input_data": {
+        "prompt": "Write a FastAPI endpoint in app/api/metrics.py to return server health metrics."
+      },
+      "ground_truth": {
+        "expected_intent": "developer"
+      },
+      "metadata": {
+        "intent": "developer"
+      }
+    },
+    {
+      "case_id": "route_007",
+      "category": "orchestrator",
+      "description": "Repository analysis request",
+      "input_data": {
+        "prompt": "Analyze the codebase structure and map dependencies across backend services."
+      },
+      "ground_truth": {
+        "expected_intent": "developer"
+      },
+      "metadata": {
+        "intent": "developer"
+      }
+    },
+    {
+      "case_id": "route_008",
+      "category": "orchestrator",
+      "description": "General conversational greeting",
+      "input_data": {
+        "prompt": "Hello! How can you help me today?"
+      },
+      "ground_truth": {
+        "expected_intent": "direct_qa"
+      },
+      "metadata": {
+        "intent": "direct_qa"
+      }
+    },
+    {
+      "case_id": "route_009",
+      "category": "orchestrator",
+      "description": "General technical knowledge question without repository or document context",
+      "input_data": {
+        "prompt": "What is the difference between TCP and UDP?"
+      },
+      "ground_truth": {
+        "expected_intent": "direct_qa"
+      },
+      "metadata": {
+        "intent": "direct_qa"
+      }
+    },
+    {
+      "case_id": "route_010",
+      "category": "orchestrator",
+      "description": "Capability inquiry",
+      "input_data": {
+        "prompt": "What tools and models do you have access to?"
+      },
+      "ground_truth": {
+        "expected_intent": "direct_qa"
+      },
+      "metadata": {
+        "intent": "direct_qa"
+      }
+    }
+  ]
+}

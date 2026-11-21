@@ -1,0 +1,34 @@
+services:
+  postgres:
+    ports:
+      - "127.0.0.1:5433:5432"
+
+  redis:
+    ports:
+      - "127.0.0.1:6380:6379"
+
+  qdrant:
+    ports:
+      - "127.0.0.1:6334:6333"
+
+  mock-ai:
+    image: python:3.13-slim
+    container_name: orchestra-mock-ai
+    restart: unless-stopped
+    volumes:
+      - ./scripts:/scripts:ro
+    command: ["python", "/scripts/mock_ai_server.py", "8000"]
+    networks:
+      - orchestra_data
+
+  backend:
+    environment:
+      EMBEDDING_BASE_URL: "http://mock-ai:8000/v1"
+      LLM_BASE_URL: "http://mock-ai:8000/v1"
+    depends_on:
+      mock-ai:
+        condition: service_started
+
+networks:
+  orchestra_data:
+    internal: false

@@ -1,29 +1,117 @@
+import logging
+from contextlib import asynccontextmanager
+from fastapi import FastAPI, HTTPException, Request, Response, status
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from sqlalchemy import text
+
 from app.api.sessions import router as sessions_router
 from app.api.projects import router as projects_router
-from fastapi import FastAPI
-from sqlalchemy import text
-from app.auth.router import router as auth_router
-from app.database.base import Base
-from app.database.connection import engine
-from app.models.user import User
 from app.api.messages import router as messages_router
-app = FastAPI(
-    title="Multi-Agent AI Research System",
-    description="Platform Core API - Member 2",
-    version="1.0.0",
+from app.api.documents import router as documents_router
+from app.api.search import router as search_router
+from app.api.research import router as research_router
+from app.api.developer import router as developer_router
+from app.api.orchestrator import router as orchestrator_router
+from app.api.memory import router as memory_router
+from app.api.evaluations import router as evaluations_router
+from app.auth.router import router as auth_router
+from app.database.connection import engine, dispose_engine
+from app.core.redis import init_redis_pool, close_redis_pool, get_redis_health
+from app.core.config import settings
+from app.core.csrf import CSRFMiddleware
+from app.core.context import get_request_id
+from app.core.logging import configure_logging
+from app.core.metrics import get_metrics_output
+from app.core.telemetry import configure_langsmith_tracing
+from app.core.middleware import (
+    MetricsMiddleware,
+    RateLimitMiddleware,
+    RequestIDMiddleware,
+    StructuredLoggingMiddleware,
 )
+
+logger = logging.getLogger("orchestra.main")
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Application startup: configure logging & initialize Redis pool
+    configure_logging()
+    configure_langsmith_tracing()
+    if settings.environment == "production":
+        settings.validate_runtime_requirements()
+    await init_redis_pool()
+    yield
+    # Application shutdown: cleanly close Redis and dispose of DB connection pool
+    await close_redis_pool()
+    dispose_engine()
+
+
+app = FastAPI(
+    title="Orchestra",
+    description="Multi-Agent AI Engineering Platform API",
+    version="1.0.0",
+    lifespan=lifespan,
+)
+
+
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:
+    request_id = getattr(request.state, "request_id", get_request_id())
+    logger.error(
+        "Unhandled server exception",
+        extra={
+            "request_id": request_id,
+            "error_category": "internal_error",
+            "error_type": exc.__class__.__name__,
+        },
+        exc_info=True,
+    )
+    return JSONResponse(
+        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        content={
+            "detail": "An internal server error occurred.",
+            "request_id": request_id,
+            "error_category": "internal_error",
+        },
+        headers={"X-Request-ID": request_id},
+    )
+
+
+# Middleware Stack: Last added is outermost on inbound requests
+app.add_middleware(RateLimitMiddleware)
+app.add_middleware(CSRFMiddleware)
+app.add_middleware(StructuredLoggingMiddleware)
+app.add_middleware(MetricsMiddleware)
+app.add_middleware(RequestIDMiddleware)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=settings.cors_allowed_origins,
+    allow_credentials=True,
+    allow_methods=["GET", "POST", "DELETE", "OPTIONS"],
+    allow_headers=["Content-Type", "X-Orchestra-Request", "Authorization", "X-Request-ID"],
+    expose_headers=["X-Request-ID", "Retry-After"],
+)
+
 app.include_router(auth_router)
 app.include_router(projects_router)
+app.include_router(documents_router)
+app.include_router(search_router)
+app.include_router(research_router)
+app.include_router(developer_router)
+app.include_router(orchestrator_router)
+app.include_router(memory_router)
+app.include_router(evaluations_router)
 app.include_router(sessions_router)
 app.include_router(messages_router)
-Base.metadata.create_all(bind=engine)
+
 
 @app.get("/")
 def root():
     return {
-        "project": "Multi-Agent AI Research System",
+        "project": "Orchestra",
         "component": "Platform Core",
-        "member": "Member 2",
         "status": "running",
     }
 
@@ -35,8 +123,64 @@ def health():
     }
 
 
+@app.get("/health/ready")
+async def readiness():
+    dependencies = {}
+    is_ready = True
+
+    # 1. Database check (Mandatory)
+    if engine is None:
+        dependencies["database"] = "unconfigured"
+        is_ready = False
+    else:
+        try:
+            with engine.connect() as connection:
+                connection.execute(text("SELECT 1"))
+            dependencies["database"] = "healthy"
+        except Exception:
+            dependencies["database"] = "unhealthy"
+            is_ready = False
+
+    # 2. Redis check (Mandatory only if production rate limiting backend is redis)
+    redis_health_data = await get_redis_health()
+    dependencies["redis"] = redis_health_data.get("status", "disconnected")
+    if settings.rate_limit_backend == "redis" and settings.environment == "production":
+        if dependencies["redis"] != "healthy":
+            is_ready = False
+
+    # 3. Qdrant check (Informational/degraded)
+    if not settings.qdrant_url:
+        dependencies["qdrant"] = "unconfigured"
+    else:
+        try:
+            from qdrant_client import AsyncQdrantClient
+
+            qdrant_kwargs = {'location': ':memory:'} if settings.qdrant_url == ':memory:' else {'url': settings.qdrant_url, 'api_key': settings.qdrant_api_key}
+            client = AsyncQdrantClient(timeout=2.0, **qdrant_kwargs)
+            await client.get_collections()
+            await client.close()
+            dependencies["qdrant"] = "healthy"
+        except Exception:
+            dependencies["qdrant"] = "degraded"
+
+    if not is_ready:
+        return JSONResponse(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            content={"status": "not_ready", "dependencies": dependencies},
+        )
+
+    return {"status": "ready", "dependencies": dependencies}
+
+
 @app.get("/health/database")
 def database_health():
+    if engine is None:
+        return {
+            "database": "unconfigured",
+            "status": "unhealthy",
+            "error": "DATABASE_URL is not configured",
+        }
+
     try:
         with engine.connect() as connection:
             connection.execute(text("SELECT 1"))
@@ -52,3 +196,48 @@ def database_health():
             "status": "unhealthy",
             "error": str(e),
         }
+
+
+@app.get("/health/redis")
+async def redis_health():
+    return await get_redis_health()
+
+
+@app.get("/health/qdrant")
+async def qdrant_health():
+    if not settings.qdrant_url:
+        return {
+            "qdrant": "unconfigured",
+            "status": "unhealthy",
+        }
+
+    try:
+        from qdrant_client import AsyncQdrantClient
+
+        qdrant_kwargs = {'location': ':memory:'} if settings.qdrant_url == ':memory:' else {'url': settings.qdrant_url, 'api_key': settings.qdrant_api_key}
+        client = AsyncQdrantClient(timeout=3.0, **qdrant_kwargs)
+        await client.get_collections()
+        await client.close()
+        return {
+            "qdrant": "connected",
+            "status": "healthy",
+        }
+    except Exception as e:
+        return {
+            "qdrant": "disconnected",
+            "status": "unhealthy",
+            "error": str(e),
+        }
+
+
+@app.get("/metrics")
+def metrics():
+    if not settings.metrics_enabled:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Operational metrics are currently disabled.",
+        )
+    return Response(
+        content=get_metrics_output(),
+        media_type="text/plain; version=0.0.4; charset=utf-8",
+    )

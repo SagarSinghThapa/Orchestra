@@ -2,6 +2,10 @@
 __pycache__/
 *.py[cod]
 *.pyo
+*.egg-info/
+*.egg
+build/
+dist/
 
 # Virtual environments
 .venv/
@@ -21,6 +25,16 @@ env/
 .pytest_cache/
 .coverage
 htmlcov/
+test-results/
+playwright-report/
+*.db
+*.db-journal
+/workspaces/
+backend/workspaces/
+!frontend/tests/e2e/fixtures/workspaces/
+node_modules/
+data/
+backend/data/
 
 # OS
 .DS_Store

@@ -1,7 +1,7 @@
 from datetime import datetime
 
 from sqlalchemy import DateTime, ForeignKey, String, Text
-from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.orm import Mapped, mapped_column, relationship, backref
 
 from app.database.base import Base
 
@@ -38,5 +38,5 @@ class Message(Base):
 
     session = relationship(
         "Session",
-        backref="messages",
+        backref=backref("messages", cascade="all, delete", passive_deletes=True),
     )
