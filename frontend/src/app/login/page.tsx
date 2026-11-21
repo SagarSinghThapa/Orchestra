@@ -6,12 +6,14 @@ import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { useAuth } from "@/features/auth/AuthContext";
 import { sanitizeRedirectUrl } from "@/features/auth/ProtectedRoute";
+import { ApiError } from "@/services/apiClient";
 
 function LoginForm() {
   const [mode, setMode] = useState<"login" | "register">("login");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
+  const [isRateLimited, setIsRateLimited] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
   const { login, register } = useAuth();
@@ -22,29 +24,39 @@ function LoginForm() {
     e.preventDefault();
     if (!email || !password) {
       setError("Please fill in all fields.");
+      setIsRateLimited(false);
       return;
     }
 
     if (password.length < 8) {
       setError("Password must be at least 8 characters.");
+      setIsRateLimited(false);
       return;
     }
 
     setError("");
+    setIsRateLimited(false);
     setSubmitting(true);
 
     try {
+      const cleanEmail = email.trim().toLowerCase();
       if (mode === "login") {
-        await login(email, password);
+        await login(cleanEmail, password);
       } else {
-        await register(email, password);
+        await register(cleanEmail, password);
       }
       const redirect = sanitizeRedirectUrl(searchParams.get("redirect"));
       router.push(redirect);
     } catch (err: unknown) {
-      const errorMsg =
-        err instanceof Error ? err.message : "Authentication failed. Please check your credentials.";
-      setError(errorMsg);
+      if (err instanceof ApiError && err.status === 429) {
+        setIsRateLimited(true);
+        setError(err.message || "Too many attempts. Please wait a moment and try again.");
+      } else {
+        setIsRateLimited(false);
+        const errorMsg =
+          err instanceof Error ? err.message : "Authentication failed. Please check your credentials.";
+        setError(errorMsg);
+      }
     } finally {
       setSubmitting(false);
     }
@@ -74,6 +86,7 @@ function LoginForm() {
             onClick={() => {
               setMode("login");
               setError("");
+              setIsRateLimited(false);
             }}
           >
             Sign In
@@ -88,6 +101,7 @@ function LoginForm() {
             onClick={() => {
               setMode("register");
               setError("");
+              setIsRateLimited(false);
             }}
           >
             Create Account
@@ -95,7 +109,14 @@ function LoginForm() {
         </div>
 
         {error && (
-          <div className="rounded-md bg-red-50 p-3 text-sm text-red-700 border border-red-200">
+          <div
+            role="alert"
+            className={`rounded-md p-3 text-sm border ${
+              isRateLimited
+                ? "bg-amber-50 text-amber-800 border-amber-200"
+                : "bg-red-50 text-red-700 border-red-200"
+            }`}
+          >
             {error}
           </div>
         )}

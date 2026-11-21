@@ -78,6 +78,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     try {
       await api.post("/auth/logout");
     } finally {
+      if (typeof window !== "undefined") {
+        try {
+          localStorage.removeItem("orchestra_selected_project_id");
+        } catch {
+          // Ignore localStorage access errors
+        }
+      }
       setUser(null);
       setStatus("unauthenticated");
     }

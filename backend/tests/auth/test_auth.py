@@ -9,6 +9,7 @@ from jose import jwt
 from sqlalchemy.orm import Session
 
 from app.auth.jwt import ALGORITHM, create_access_token, create_refresh_token
+from app.auth.password import hash_password
 from app.core.config import settings
 from app.models.user import User, UserRole
 
@@ -244,3 +245,147 @@ def test_logout_clears_cookies(client: TestClient, member_user: User):
     set_cookie_header = logout_resp.headers.get("set-cookie", "")
     assert 'access_token=""' in set_cookie_header or 'access_token=;' in set_cookie_header
     assert 'refresh_token=""' in set_cookie_header or 'refresh_token=;' in set_cookie_header
+
+
+def test_register_normalizes_email_to_lowercase(client: TestClient, db_session: Session):
+    """Verify registration normalizes mixed-case email to lowercase."""
+    raw_email = "  MixedCase_User@Orchestra.AI  "
+    payload = {
+        "email": raw_email,
+        "password": "ValidPassword123!",
+    }
+    response = client.post("/auth/register", json=payload)
+    assert response.status_code == 201
+    data = response.json()
+    assert data["email"] == "mixedcase_user@orchestra.ai"
+
+    # Verify DB storage is lowercase
+    user = db_session.query(User).filter(User.email == "mixedcase_user@orchestra.ai").first()
+    assert user is not None
+
+
+def test_login_case_insensitive_matching(client: TestClient, db_session: Session):
+    """Verify login succeeds when email has different casing than registered."""
+    # Register lowercase user
+    payload = {
+        "email": "casetester@orchestra.ai",
+        "password": "ValidPassword123!",
+    }
+    reg_resp = client.post("/auth/register", json=payload)
+    assert reg_resp.status_code == 201
+
+    # Login with mixed case
+    login_resp = client.post(
+        "/auth/login",
+        json={"email": "CaseTester@Orchestra.AI", "password": "ValidPassword123!"},
+    )
+    assert login_resp.status_code == 200
+    assert "access_token" in login_resp.json()
+
+
+def test_login_tolerates_surrounding_whitespace(client: TestClient, db_session: Session):
+    """Verify login tolerates leading/trailing whitespace in email."""
+    payload = {
+        "email": "whitespacetest@orchestra.ai",
+        "password": "ValidPassword123!",
+    }
+    reg_resp = client.post("/auth/register", json=payload)
+    assert reg_resp.status_code == 201
+
+    # Login with surrounding spaces
+    login_resp = client.post(
+        "/auth/login",
+        json={"email": "  whitespacetest@orchestra.ai  \t", "password": "ValidPassword123!"},
+    )
+    assert login_resp.status_code == 200
+    assert "access_token" in login_resp.json()
+
+
+def test_register_duplicate_rejection_case_insensitive(client: TestClient, db_session: Session):
+    """Verify registration rejects duplicate email regardless of casing."""
+    payload = {
+        "email": "original@orchestra.ai",
+        "password": "ValidPassword123!",
+    }
+    reg_resp = client.post("/auth/register", json=payload)
+    assert reg_resp.status_code == 201
+
+    # Attempt to register with uppercase variant
+    dup_payload = {
+        "email": "ORIGINAL@ORCHESTRA.AI",
+        "password": "AnotherPassword123!",
+    }
+    dup_resp = client.post("/auth/register", json=dup_payload)
+    assert dup_resp.status_code == 409
+    assert dup_resp.json()["detail"] == "Email already registered"
+
+
+def test_login_collision_fails_closed_without_information_disclosure(
+    client: TestClient, db_session: Session
+):
+    """
+    Verify collision safety:
+    1. If exact match exists, legacy exact-match succeeds.
+    2. If case-insensitive match returns multiple accounts and NO exact match exists,
+       it FAILS CLOSED (never selects oldest, never mutates) and returns generic 401
+       without leaking candidate IDs or email addresses.
+    """
+    # Create two collision accounts directly in DB with different casing
+    user_lower = User(
+        email="collision_target@orchestra.ai",
+        password_hash=hash_password("LowerPass123!"),
+        role=UserRole.MEMBER.value,
+    )
+    user_upper = User(
+        email="COLLISION_TARGET@ORCHESTRA.AI",
+        password_hash=hash_password("UpperPass123!"),
+        role=UserRole.MEMBER.value,
+    )
+    db_session.add(user_lower)
+    db_session.add(user_upper)
+    db_session.commit()
+    db_session.refresh(user_lower)
+    db_session.refresh(user_upper)
+
+    lower_id = user_lower.id
+    upper_id = user_upper.id
+
+    # 1. Exact match for lower succeeds
+    res_lower = client.post(
+        "/auth/login",
+        json={"email": "collision_target@orchestra.ai", "password": "LowerPass123!"},
+    )
+    assert res_lower.status_code == 200
+
+    # 2. Exact match for upper succeeds
+    res_upper = client.post(
+        "/auth/login",
+        json={"email": "COLLISION_TARGET@ORCHESTRA.AI", "password": "UpperPass123!"},
+    )
+    assert res_upper.status_code == 200
+
+    # 3. Ambiguous lookup (neither exact match): e.g. "Collision_Target@Orchestra.AI"
+    # Matches both case-insensitively -> MUST FAIL CLOSED
+    res_ambiguous = client.post(
+        "/auth/login",
+        json={"email": "Collision_Target@Orchestra.AI", "password": "LowerPass123!"},
+    )
+    assert res_ambiguous.status_code == 401
+    err_body = res_ambiguous.json()
+    assert err_body["detail"] == "Invalid email or password"
+
+    # Verify zero information disclosure: no candidate IDs, no counts, no emails leaked
+    response_text = res_ambiguous.text
+    assert str(lower_id) not in response_text
+    assert str(upper_id) not in response_text
+    assert "collision_target" not in response_text
+    assert "candidates" not in response_text
+
+    # Verify zero mutation: both DB records still exist and are untouched
+    check_lower = db_session.query(User).filter(User.id == lower_id).first()
+    check_upper = db_session.query(User).filter(User.id == upper_id).first()
+    assert check_lower is not None
+    assert check_upper is not None
+    assert check_lower.email == "collision_target@orchestra.ai"
+    assert check_upper.email == "COLLISION_TARGET@ORCHESTRA.AI"
+
