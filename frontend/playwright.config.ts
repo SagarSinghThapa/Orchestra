@@ -94,6 +94,7 @@ export default defineConfig({
       env: {
         NEXT_PUBLIC_API_URL: 'http://127.0.0.1:8001',
         PORT: '3001',
+        NODE_OPTIONS: process.env.NODE_OPTIONS || '--max-old-space-size=4096',
       },
     },
   ],
