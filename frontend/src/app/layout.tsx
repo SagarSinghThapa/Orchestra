@@ -3,6 +3,11 @@ import { Inter } from "next/font/google";
 import "./globals.css";
 import { AuthProvider } from "@/features/auth/AuthContext";
 import { AppShell } from "@/components/layout/AppShell";
+import {
+  PrivacyProvider,
+  CookieConsentBanner,
+  CookiePreferencesModal,
+} from "@/features/privacy";
 
 const inter = Inter({ subsets: ["latin"] });
 
@@ -20,7 +25,11 @@ export default function RootLayout({
     <html lang="en" suppressHydrationWarning>
       <body className={`${inter.className} bg-gray-50 text-gray-900`} suppressHydrationWarning>
         <AuthProvider>
-          <AppShell>{children}</AppShell>
+          <PrivacyProvider>
+            <AppShell>{children}</AppShell>
+            <CookieConsentBanner />
+            <CookiePreferencesModal />
+          </PrivacyProvider>
         </AuthProvider>
       </body>
     </html>

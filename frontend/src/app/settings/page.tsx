@@ -5,10 +5,12 @@ import { Card } from "@/components/ui/Card";
 import { useAuth } from "@/features/auth/AuthContext";
 import { useProject } from "@/features/projects/ProjectContext";
 import { getBaseUrl } from "@/services/apiClient";
+import { usePrivacy } from "@/features/privacy";
 
 export default function SettingsPage() {
   const { user } = useAuth();
   const { selectedProject } = useProject();
+  const { consent, openPreferences } = usePrivacy();
 
   let apiUrl = "Same-Origin (Reverse Proxy)";
   try {
@@ -94,6 +96,55 @@ export default function SettingsPage() {
             <span className="text-[#A4A6B8]">Mock Mode Status</span>
             <span className="font-mono text-emerald-400 bg-emerald-500/15 border border-emerald-500/30 px-2.5 py-1 rounded-md font-medium">
               Decommissioned (Pure Live Backend)
+            </span>
+          </div>
+        </div>
+      </Card>
+
+      <Card>
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4 border-b border-white/[0.06] pb-2.5">
+          <h2 className="text-sm font-semibold text-[#F8F8FC]">
+            Privacy &amp; Data Preferences
+          </h2>
+          <button
+            type="button"
+            onClick={openPreferences}
+            className="self-start sm:self-auto px-3 py-1.5 text-xs font-medium rounded-lg bg-[#5146FF] hover:bg-[#4338CA] text-white shadow-sm transition focus:outline-none focus:ring-2 focus:ring-[#5146FF]"
+          >
+            Manage Cookie Preferences
+          </button>
+        </div>
+        <div className="space-y-3 text-xs">
+          <div className="flex flex-wrap justify-between items-center py-2 border-b border-white/[0.04]">
+            <span className="text-[#A4A6B8]">Essential Authentication &amp; CSRF Cookies</span>
+            <span className="font-mono text-emerald-400 bg-emerald-500/15 border border-emerald-500/30 px-2.5 py-1 rounded-md font-medium">
+              Active (Mandatory Core Security)
+            </span>
+          </div>
+          <div className="flex flex-wrap justify-between items-center py-2 border-b border-white/[0.04]">
+            <span className="text-[#A4A6B8]">Optional Client Telemetry</span>
+            <span
+              className={`font-mono px-2.5 py-1 rounded-md font-medium border ${
+                consent?.categories?.analytics
+                  ? "text-emerald-400 bg-emerald-500/15 border-emerald-500/30"
+                  : "text-[#A4A6B8] bg-[#15151B] border-white/[0.06]"
+              }`}
+            >
+              {consent?.categories?.analytics
+                ? "Consented (Ready)"
+                : "Not Currently Available (Off by Default)"}
+            </span>
+          </div>
+          <div className="flex flex-wrap justify-between items-center py-2 border-b border-white/[0.04]">
+            <span className="text-[#A4A6B8]">Consent Record Timestamp</span>
+            <span className="font-mono text-[#F8F8FC] bg-[#15151B] px-2.5 py-1 rounded-md border border-white/[0.06]">
+              {consent?.updatedAt ? new Date(consent.updatedAt).toLocaleString() : "Not Yet Configured"}
+            </span>
+          </div>
+          <div className="flex flex-wrap justify-between items-center py-2">
+            <span className="text-[#A4A6B8]">Third-Party Advertising Trackers</span>
+            <span className="font-mono text-emerald-400 bg-emerald-500/15 border border-emerald-500/30 px-2.5 py-1 rounded-md font-medium">
+              Zero Deployed (Privacy-by-Design)
             </span>
           </div>
         </div>

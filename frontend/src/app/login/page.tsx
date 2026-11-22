@@ -1,10 +1,12 @@
 "use client";
 
 import React, { useState, Suspense } from "react";
+import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { useAuth } from "@/features/auth/AuthContext";
+import { getStoredConsent, saveStoredConsent } from "@/features/privacy";
 import { sanitizeRedirectUrl } from "@/features/auth/ProtectedRoute";
 import { ApiError } from "@/services/apiClient";
 
@@ -44,6 +46,9 @@ function LoginForm() {
         await login(cleanEmail, password);
       } else {
         await register(cleanEmail, password);
+      }
+      if (!getStoredConsent()) {
+        saveStoredConsent(false);
       }
       const redirect = sanitizeRedirectUrl(searchParams.get("redirect"));
       router.push(redirect);
@@ -176,6 +181,16 @@ function LoginForm() {
             {submitting ? "Please wait..." : mode === "login" ? "Sign In" : "Register"}
           </Button>
         </form>
+
+        <div className="pt-4 border-t border-white/[0.06] flex items-center justify-center gap-3 text-xs text-[#929292]">
+          <Link href="/privacy" className="hover:text-white transition">
+            Privacy Policy
+          </Link>
+          <span>·</span>
+          <Link href="/cookies" className="hover:text-white transition">
+            Cookie Policy
+          </Link>
+        </div>
       </Card>
     </div>
   );

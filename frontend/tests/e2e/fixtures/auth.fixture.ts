@@ -34,6 +34,13 @@ export async function loginAs(page: Page, role: 'admin' | 'member' | 'viewer') {
   await page.goto('/login');
   await expect(page.getByRole('heading', { name: /Sign in to Orchestra/i })).toBeVisible();
 
+  // Acknowledge essential cookie consent if the banner is present so it does not obstruct subsequent workspace interactions
+  const ackBtn = page.locator('aside[aria-label="Cookie and Privacy Consent"]').getByRole('button', { name: /acknowledge & continue/i });
+  if (await ackBtn.isVisible({ timeout: 500 }).catch(() => false)) {
+    await ackBtn.click();
+    await expect(page.locator('aside[aria-label="Cookie and Privacy Consent"]')).not.toBeVisible({ timeout: 5000 });
+  }
+
   await page.getByPlaceholder('you@domain.com').fill(credentials.email);
   await page.getByPlaceholder('At least 8 characters...').fill(credentials.password);
 
