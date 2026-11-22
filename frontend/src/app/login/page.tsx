@@ -6,6 +6,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
 import { useAuth } from "@/features/auth/AuthContext";
+import { getStoredConsent, saveStoredConsent } from "@/features/privacy";
 import { sanitizeRedirectUrl } from "@/features/auth/ProtectedRoute";
 import { ApiError } from "@/services/apiClient";
 
@@ -45,6 +46,9 @@ function LoginForm() {
         await login(cleanEmail, password);
       } else {
         await register(cleanEmail, password);
+      }
+      if (!getStoredConsent()) {
+        saveStoredConsent(false);
       }
       const redirect = sanitizeRedirectUrl(searchParams.get("redirect"));
       router.push(redirect);
