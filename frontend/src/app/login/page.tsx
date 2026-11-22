@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, Suspense } from "react";
+import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Card } from "@/components/ui/Card";
 import { Button } from "@/components/ui/Button";
@@ -176,6 +177,16 @@ function LoginForm() {
             {submitting ? "Please wait..." : mode === "login" ? "Sign In" : "Register"}
           </Button>
         </form>
+
+        <div className="pt-4 border-t border-white/[0.06] flex items-center justify-center gap-3 text-xs text-[#929292]">
+          <Link href="/privacy" className="hover:text-white transition">
+            Privacy Policy
+          </Link>
+          <span>·</span>
+          <Link href="/cookies" className="hover:text-white transition">
+            Cookie Policy
+          </Link>
+        </div>
       </Card>
     </div>
   );

@@ -7,11 +7,13 @@ import { useAuth } from "@/features/auth/AuthContext";
 import { ProjectProvider } from "@/features/projects/ProjectContext";
 import { ProtectedRoute } from "@/features/auth/ProtectedRoute";
 import { ProjectSelector } from "@/components/projects/ProjectSelector";
+import { usePrivacy } from "@/features/privacy";
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const router = useRouter();
   const { user, logout } = useAuth();
+  const { openPreferences } = usePrivacy();
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
 
   const handleNewChat = useCallback(() => {
@@ -32,7 +34,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [handleNewChat]);
 
-  if (pathname === "/login") {
+  const isPublicPage = pathname === "/login" || pathname === "/privacy" || pathname === "/cookies";
+  if (isPublicPage) {
     return <>{children}</>;
   }
 
@@ -207,29 +210,49 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             {/* Bottom User Profile Section on Pure Solid Black */}
             <div className="p-3 border-t border-[#242424] bg-[#000000]">
               {user && (
-                <div className="flex items-center justify-between p-1.5 rounded-lg hover:bg-[#202020] transition">
-                  <div className="flex items-center gap-2.5 min-w-0">
-                    <div className="relative shrink-0">
-                      <div className="w-8 h-8 rounded-full bg-[#20212B] border border-[#242424] flex items-center justify-center text-xs font-semibold text-white uppercase">
-                        {user.email.substring(0, 2)}
+                <>
+                  <div className="flex items-center justify-between p-1.5 rounded-lg hover:bg-[#202020] transition">
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <div className="relative shrink-0">
+                        <div className="w-8 h-8 rounded-full bg-[#20212B] border border-[#242424] flex items-center justify-center text-xs font-semibold text-white uppercase">
+                          {user.email.substring(0, 2)}
+                        </div>
+                        <span className="w-2 h-2 rounded-full bg-emerald-500 border border-black absolute bottom-0 right-0" />
                       </div>
-                      <span className="w-2 h-2 rounded-full bg-emerald-500 border border-black absolute bottom-0 right-0" />
+                      <div className="flex flex-col min-w-0">
+                        <span className="text-xs font-medium text-[#F5F5F5] truncate max-w-[120px]">{user.email}</span>
+                        <span className="text-[11px] text-[#929292] truncate capitalize">Online · {user.role}</span>
+                      </div>
                     </div>
-                    <div className="flex flex-col min-w-0">
-                      <span className="text-xs font-medium text-[#F5F5F5] truncate max-w-[120px]">{user.email}</span>
-                      <span className="text-[11px] text-[#929292] truncate capitalize">Online · {user.role}</span>
+                    <button
+                      type="button"
+                      onClick={() => logout()}
+                      aria-label="Sign out"
+                      title="Sign out"
+                      className="text-xs text-[#929292] hover:text-red-400 p-1 rounded hover:bg-white/[0.04] transition"
+                    >
+                      Sign out
+                    </button>
+                  </div>
+                  <div className="flex items-center justify-between px-1.5 pt-2 border-t border-white/[0.04] text-[10px] text-[#929292]">
+                    <button
+                      type="button"
+                      onClick={openPreferences}
+                      className="hover:text-[#A4A6B8] transition focus:outline-none focus:underline"
+                    >
+                      Cookie Settings
+                    </button>
+                    <div className="flex items-center gap-2">
+                      <Link href="/privacy" className="hover:text-[#A4A6B8] transition">
+                        Privacy
+                      </Link>
+                      <span>·</span>
+                      <Link href="/cookies" className="hover:text-[#A4A6B8] transition">
+                        Cookies
+                      </Link>
                     </div>
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => logout()}
-                    aria-label="Sign out"
-                    title="Sign out"
-                    className="text-xs text-[#929292] hover:text-red-400 p-1 rounded hover:bg-white/[0.04] transition"
-                  >
-                    Sign out
-                  </button>
-                </div>
+                </>
               )}
             </div>
           </aside>
