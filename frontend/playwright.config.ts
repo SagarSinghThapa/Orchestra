@@ -86,7 +86,7 @@ export default defineConfig({
       },
     },
     {
-      command: 'npm run dev:e2e',
+      command: 'node --max-old-space-size=4096 ./node_modules/next/dist/bin/next dev --webpack -H 127.0.0.1 -p 3001',
       cwd: __dirname,
       url: 'http://127.0.0.1:3001',
       reuseExistingServer: false,
