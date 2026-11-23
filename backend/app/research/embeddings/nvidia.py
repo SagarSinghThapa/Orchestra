@@ -30,7 +30,8 @@ class NVIDIAEmbeddingProvider(EmbeddingProvider):
     Guarantees:
     - Text semantic embeddings for document indexing (input_type="passage").
     - Text semantic embeddings for retrieval queries (input_type="query").
-    - Bounded request timeouts with jittered backoff on transient errors.
+    - Bounded request timeouts with jittered exponential backoff (4 retries / 5 attempts total).
+    - Respects and parses Retry-After response headers up to 15.0s.
     - Strict vector dimension assertion (default 2048 for Nemotron 3.5 Embed 1B).
     - Secret scrubbing: API credentials are never logged or exposed in exceptions.
     """
@@ -44,7 +45,7 @@ class NVIDIAEmbeddingProvider(EmbeddingProvider):
         client: Optional[httpx.AsyncClient] = None,
         batch_size: int = MAX_NVIDIA_EMBEDDING_BATCH_SIZE,
         timeout: float = 30.0,
-        max_retries: int = 2,
+        max_retries: int = 4,
     ) -> None:
         raw_url = (base_url or DEFAULT_NVIDIA_BASE_URL).rstrip("/")
         if not (raw_url.startswith("http://") or raw_url.startswith("https://")):
@@ -84,6 +85,7 @@ class NVIDIAEmbeddingProvider(EmbeddingProvider):
         last_error: Optional[Exception] = None
 
         for attempt in range(self.max_retries + 1):
+            retry_after_delay: Optional[float] = None
             try:
                 if self._client is not None:
                     response = await self._client.post(
@@ -133,12 +135,23 @@ class NVIDIAEmbeddingProvider(EmbeddingProvider):
                     raise AuthenticationError(
                         f"NVIDIA embedding API authentication failed (HTTP {response.status_code})"
                     )
-                elif response.status_code == 429:
-                    last_error = RateLimitError("NVIDIA embedding API rate limit exceeded (HTTP 429)")
-                elif response.status_code >= 500:
-                    last_error = ProviderUnavailableError(
-                        f"NVIDIA embedding service unavailable (HTTP {response.status_code})"
-                    )
+                elif response.status_code in (429, 503) or response.status_code >= 500:
+                    # Check Retry-After header
+                    retry_header = response.headers.get("Retry-After")
+                    if retry_header:
+                        try:
+                            parsed_delay = float(retry_header)
+                            if parsed_delay > 0:
+                                retry_after_delay = min(parsed_delay, 15.0)
+                        except (ValueError, TypeError):
+                            pass
+
+                    if response.status_code == 429:
+                        last_error = RateLimitError("NVIDIA embedding API rate limit exceeded (HTTP 429)")
+                    else:
+                        last_error = ProviderUnavailableError(
+                            f"NVIDIA embedding service unavailable (HTTP {response.status_code})"
+                        )
                 else:
                     raise ResearchPipelineError(
                         f"NVIDIA embedding request failed with HTTP status {response.status_code}: {response.text[:200]}"
@@ -151,9 +164,12 @@ class NVIDIAEmbeddingProvider(EmbeddingProvider):
             except Exception as exc:
                 last_error = ResearchPipelineError(f"NVIDIA embedding HTTP transport error: {type(exc).__name__}")
 
-            # Jittered backoff if attempts remaining
+            # Jittered exponential backoff if attempts remaining
             if attempt < self.max_retries:
-                backoff = min(0.5 * (2 ** attempt) + random.uniform(0.1, 0.3), 2.5)
+                if retry_after_delay is not None:
+                    backoff = retry_after_delay
+                else:
+                    backoff = min(0.5 * (2 ** attempt) + random.uniform(0.1, 0.4), 12.0)
                 await asyncio.sleep(backoff)
 
         if last_error:

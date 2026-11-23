@@ -79,6 +79,9 @@ class RetrievalResponse(BaseModel):
     query: str
     total_results: int
     mode: str
-    results: list[CitationEvidence]
+    results: list[CitationEvidence] = Field(default_factory=list)
+    status: str = "ok"
+    degraded_mode: bool = False
+    error_message: Optional[str] = None
 
     model_config = ConfigDict(from_attributes=True)
