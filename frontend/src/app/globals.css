@@ -1,26 +1,76 @@
 @import "tailwindcss";
 
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --background: #101014;
+  --foreground: #F5F5F5;
+  --workspace-main: #101014;
+  --workspace-secondary: #15151B;
+  --workspace-card: #20212B;
+  --workspace-sidebar: #000000;
+  --border-default: #242424;
+  --border-light: rgba(255, 255, 255, 0.08);
+  --border-card: rgba(255, 255, 255, 0.12);
+  --accent-electric: #5146FF;
+  --accent-violet: #8B7CFF;
+  --neutral-title: #F8F8FC;
+  --neutral-body: #F5F5F5;
+  --neutral-secondary: #A4A6B8;
+  --neutral-muted: #929292;
+  --neutral-dark-item: #202020;
+  --neutral-dark-hover: #282828;
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+  --color-workspace-main: #101014;
+  --color-workspace-secondary: #15151B;
+  --color-workspace-card: #20212B;
+  --color-workspace-sidebar: #000000;
+  --color-border-default: #242424;
+  --color-accent-electric: #5146FF;
+  --color-accent-violet: #8B7CFF;
+  --color-neutral-title: #F8F8FC;
+  --color-neutral-body: #F5F5F5;
+  --color-neutral-secondary: #A4A6B8;
+  --color-neutral-muted: #929292;
+  --color-neutral-dark-item: #202020;
+  --color-neutral-dark-hover: #282828;
+  --font-sans: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
 }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background: #101014;
+  color: #F5F5F5;
+  font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+
+/* Workspace subtle dark gradient background matching Stitch */
+.workspace-gradient-bg {
+  background-color: #101014;
+  background-image: linear-gradient(110deg, #171923 0%, #111116 45%, #101014 100%);
+}
+
+/* Custom smooth scrollbar matching Stitch */
+::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.2);
+}
+.scrollbar-none::-webkit-scrollbar {
+  display: none;
+}
+.scrollbar-none {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
 }

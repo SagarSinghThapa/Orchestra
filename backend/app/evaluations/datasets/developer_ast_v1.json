@@ -1,0 +1,116 @@
+{
+  "dataset_id": "orchestra_developer_ast",
+  "dataset_version": "1.0.0",
+  "description": "Golden developer benchmark evaluating AST syntax validity, diff applicability, and concurrency safety",
+  "cases": [
+    {
+      "case_id": "dev_001",
+      "category": "developer",
+      "description": "Valid Python utility function addition with clean unified diff",
+      "input_data": {
+        "file_path": "utils.py",
+        "base_content": "def add(a: int, b: int) -> int:\n    return a + b\n",
+        "new_content": "def add(a: int, b: int) -> int:\n    return a + b\n\ndef multiply(a: int, b: int) -> int:\n    return a * b\n",
+        "target_files": ["utils.py"],
+        "mode": "preview"
+      },
+      "ground_truth": {
+        "expected_ast_valid": true,
+        "expected_diff_applicable": true,
+        "expected_scope_compliant": true,
+        "expect_zero_mutation": true
+      },
+      "metadata": {
+        "scenario": "clean_addition"
+      }
+    },
+    {
+      "case_id": "dev_002",
+      "category": "developer",
+      "description": "Valid Python class modification with type hints and docstring",
+      "input_data": {
+        "file_path": "service.py",
+        "base_content": "class Worker:\n    def run(self) -> None:\n        pass\n",
+        "new_content": "class Worker:\n    def __init__(self, name: str) -> None:\n        self.name = name\n\n    def run(self) -> None:\n        print(f'Running worker {self.name}')\n",
+        "target_files": ["service.py"],
+        "mode": "preview"
+      },
+      "ground_truth": {
+        "expected_ast_valid": true,
+        "expected_diff_applicable": true,
+        "expected_scope_compliant": true,
+        "expect_zero_mutation": true
+      },
+      "metadata": {
+        "scenario": "class_refactor"
+      }
+    },
+    {
+      "case_id": "dev_003",
+      "category": "developer",
+      "description": "Syntactically invalid Python code with unclosed parentheses and unexpected EOF",
+      "input_data": {
+        "file_path": "invalid_code.py",
+        "base_content": "def compute():\n    return 42\n",
+        "new_content": "def compute(\n    return 42\n",
+        "target_files": ["invalid_code.py"],
+        "mode": "preview"
+      },
+      "ground_truth": {
+        "expected_ast_valid": false,
+        "expected_diff_applicable": true,
+        "expected_scope_compliant": true,
+        "expect_zero_mutation": true
+      },
+      "metadata": {
+        "scenario": "syntax_error_detection"
+      }
+    },
+    {
+      "case_id": "dev_004",
+      "category": "developer",
+      "description": "Optimistic concurrency collision detection where base hash does not match expected_file_hashes",
+      "input_data": {
+        "file_path": "config.py",
+        "base_content": "DEBUG = True\nPORT = 8000\n",
+        "new_content": "DEBUG = False\nPORT = 8000\n",
+        "target_files": ["config.py"],
+        "expected_file_hashes": {
+          "config.py": "0000000000000000000000000000000000000000000000000000000000000000"
+        },
+        "mode": "preview"
+      },
+      "ground_truth": {
+        "expected_ast_valid": true,
+        "expected_diff_applicable": true,
+        "expected_scope_compliant": true,
+        "expect_hash_collision": true,
+        "expect_zero_mutation": true
+      },
+      "metadata": {
+        "scenario": "concurrency_rejection"
+      }
+    },
+    {
+      "case_id": "dev_005",
+      "category": "developer",
+      "description": "Modification exceeding target files scope boundary",
+      "input_data": {
+        "file_path": "unauthorized.py",
+        "base_content": "# old\n",
+        "new_content": "# new\n",
+        "target_files": ["allowed_file.py"],
+        "mode": "preview"
+      },
+      "ground_truth": {
+        "expected_ast_valid": true,
+        "expected_diff_applicable": true,
+        "expected_scope_compliant": false,
+        "expect_zero_mutation": true
+      },
+      "metadata": {
+        "scenario": "scope_violation"
+      }
+    }
+  ]
+}

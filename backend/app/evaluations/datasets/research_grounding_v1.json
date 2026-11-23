@@ -1,0 +1,185 @@
+{
+  "dataset_id": "orchestra_research_grounding",
+  "dataset_version": "1.0.0",
+  "description": "Golden research benchmark evaluating citation precision, claim grounding, and refusal correctness",
+  "cases": [
+    {
+      "case_id": "res_001",
+      "category": "research",
+      "description": "Multi-claim technical answer with full citation grounding",
+      "input_data": {
+        "question": "What is Orchestra's context ceiling and how is it managed?",
+        "evidence_pool": [
+          {
+            "chunk_id": "chk_mem_01",
+            "document_filename": "memory.md",
+            "page_number": 1,
+            "text": "Orchestra enforces an unbreachable mathematical hard cap of 4,000 characters."
+          },
+          {
+            "chunk_id": "chk_mem_02",
+            "document_filename": "memory.md",
+            "page_number": 2,
+            "text": "Context assembler prioritizes recent messages and active session summaries."
+          }
+        ],
+        "draft_answer": {
+          "has_sufficient_evidence": true,
+          "claims": [
+            {
+              "claim_text": "Orchestra enforces a hard context cap of 4,000 characters.",
+              "supporting_evidence_ids": ["chk_mem_01"]
+            },
+            {
+              "claim_text": "The context assembler prioritizes recent turns and active session summaries.",
+              "supporting_evidence_ids": ["chk_mem_02"]
+            }
+          ]
+        }
+      },
+      "ground_truth": {
+        "expect_sufficient_evidence": true,
+        "expected_citations": ["chk_mem_01", "chk_mem_02"],
+        "min_grounded_claims": 2,
+        "max_stripped_claims": 0
+      },
+      "metadata": {
+        "expected_status": "completed"
+      }
+    },
+    {
+      "case_id": "res_002",
+      "category": "research",
+      "description": "Draft contains a hallucinated citation ID which must be stripped",
+      "input_data": {
+        "question": "How are refresh tokens handled in Orchestra?",
+        "evidence_pool": [
+          {
+            "chunk_id": "chk_auth_01",
+            "document_filename": "auth.md",
+            "page_number": 1,
+            "text": "Refresh tokens are stored in secure httpOnly cookies with Path=/."
+          }
+        ],
+        "draft_answer": {
+          "has_sufficient_evidence": true,
+          "claims": [
+            {
+              "claim_text": "Refresh tokens are stored in httpOnly cookies.",
+              "supporting_evidence_ids": ["chk_auth_01"]
+            },
+            {
+              "claim_text": "Refresh tokens are automatically synced to local storage on mobile devices.",
+              "supporting_evidence_ids": ["chk_hallucinated_999"]
+            }
+          ]
+        }
+      },
+      "ground_truth": {
+        "expect_sufficient_evidence": true,
+        "expected_citations": ["chk_auth_01"],
+        "min_grounded_claims": 1,
+        "max_stripped_claims": 1
+      },
+      "metadata": {
+        "expected_status": "completed"
+      }
+    },
+    {
+      "case_id": "res_003",
+      "category": "research",
+      "description": "Zero evidence available requiring canonical refusal response",
+      "input_data": {
+        "question": "What is the recommended hyperparameter configuration for quantum annealing in Orchestra?",
+        "evidence_pool": [],
+        "draft_answer": {
+          "has_sufficient_evidence": false,
+          "claims": []
+        }
+      },
+      "ground_truth": {
+        "expect_sufficient_evidence": false,
+        "expected_citations": [],
+        "min_grounded_claims": 0,
+        "max_stripped_claims": 0,
+        "expect_canonical_refusal": true
+      },
+      "metadata": {
+        "expected_status": "insufficient_evidence"
+      }
+    },
+    {
+      "case_id": "res_004",
+      "category": "research",
+      "description": "Two claims supported by a single consolidated evidence chunk",
+      "input_data": {
+        "question": "What are the allowed document formats and upload limits?",
+        "evidence_pool": [
+          {
+            "chunk_id": "chk_doc_01",
+            "document_filename": "documents.md",
+            "page_number": 1,
+            "text": "Document upload accepts pdf, txt, and md extensions with a maximum size of 10MB per file."
+          }
+        ],
+        "draft_answer": {
+          "has_sufficient_evidence": true,
+          "claims": [
+            {
+              "claim_text": "Supported formats are PDF, TXT, and Markdown.",
+              "supporting_evidence_ids": ["chk_doc_01"]
+            },
+            {
+              "claim_text": "The maximum file upload limit is 10 megabytes.",
+              "supporting_evidence_ids": ["chk_doc_01"]
+            }
+          ]
+        }
+      },
+      "ground_truth": {
+        "expect_sufficient_evidence": true,
+        "expected_citations": ["chk_doc_01"],
+        "min_grounded_claims": 2,
+        "max_stripped_claims": 0
+      },
+      "metadata": {
+        "expected_status": "completed"
+      }
+    },
+    {
+      "case_id": "res_005",
+      "category": "research",
+      "description": "Draft with completely ungrounded claims stripped to empty triggering refusal",
+      "input_data": {
+        "question": "Does Orchestra support blockchain smart contract auditing?",
+        "evidence_pool": [
+          {
+            "chunk_id": "chk_other_01",
+            "document_filename": "general.md",
+            "page_number": 1,
+            "text": "Orchestra is an AI engineering platform for multi-agent research and developer intelligence."
+          }
+        ],
+        "draft_answer": {
+          "has_sufficient_evidence": true,
+          "claims": [
+            {
+              "claim_text": "Orchestra compiles Solidity contracts and deploys them to Ethereum testnets.",
+              "supporting_evidence_ids": ["non_existent_solidity_chunk"]
+            }
+          ]
+        }
+      },
+      "ground_truth": {
+        "expect_sufficient_evidence": false,
+        "expected_citations": [],
+        "min_grounded_claims": 0,
+        "max_stripped_claims": 1,
+        "expect_canonical_refusal": true
+      },
+      "metadata": {
+        "expected_status": "insufficient_evidence"
+      }
+    }
+  ]
+}

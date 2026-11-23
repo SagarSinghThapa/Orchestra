@@ -1,68 +1,59 @@
-/**
- * PROVISIONAL EVALUATION TYPES
- * 
- * These interfaces are provisional adapters for the Evaluation Dashboard UI.
- * Member 1 owns evaluation metrics/benchmarks/datasets.
- * Member 2 owns evaluation execution infrastructure.
- * Member 3 owns ONLY the dashboard/UI rendering.
- * 
- * These types MUST be updated once M1/M2 publish their evaluation contracts.
- */
+export type EvalStatus = 'pending' | 'running' | 'completed' | 'failed';
+export type CaseStatus = 'passed' | 'failed' | 'error' | 'skipped';
+export type ExecutionMode = 'regression' | 'real_provider';
+export type MetricDirection = 'higher_is_better' | 'lower_is_better';
 
-export type EvalStatus = 'passed' | 'failed' | 'running' | 'pending' | 'error';
-
-export interface EvaluationMetric {
-  name: string;
-  value: number;
-  unit: string;
-  trend?: 'up' | 'down' | 'stable';
+export interface EvaluationCaseResult {
+  id: number;
+  run_id: string;
+  case_id: string;
+  status: CaseStatus;
+  duration_ms: number;
+  metrics: Record<string, number>;
+  failure_reason?: string | null;
+  details?: Record<string, unknown> | null;
 }
 
 export interface EvaluationRun {
   id: string;
-  agent: string;
-  benchmark: string;
+  project_id?: number | null;
+  created_by_user_id?: number | null;
+  suite_id: string;
+  dataset_id: string;
+  dataset_version: string;
+  dataset_sha256: string;
+  execution_mode: ExecutionMode;
+  model_name: string;
+  metric_schema_version: string;
+  target_type: string;
   status: EvalStatus;
-  started_at: string;
-  completed_at?: string;
-  duration_ms?: number;
-  metrics: EvaluationMetric[];
-  failure_reason?: string;
+  is_baseline: boolean;
+  total_cases: number;
+  passed_cases: number;
+  failed_cases: number;
+  duration_ms: number;
+  summary_metrics: Record<string, number>;
+  error_message?: string | null;
+  created_at: string;
+  completed_at?: string | null;
+  case_results?: EvaluationCaseResult[];
 }
 
-export interface AgentPerformance {
-  agent: string;
-  total_runs: number;
-  passed: number;
-  failed: number;
-  avg_latency_ms: number;
-  success_rate: number;
+export interface BenchmarkSuiteInfo {
+  suite_id: string;
+  name: string;
+  description: string;
+  target_type: string;
+  supported_scope: 'system' | 'project' | 'both';
+  default_dataset_id: string;
+  default_dataset_version: string;
+  case_count: number;
+  metrics: string[];
 }
 
-export interface BenchmarkResult {
-  benchmark: string;
-  runs: number;
-  avg_score: number;
-  best_score: number;
-  worst_score: number;
-}
-
-export interface EvaluationSummary {
-  total_runs: number;
-  passed: number;
-  failed: number;
-  running: number;
-  pending: number;
-  agents: AgentPerformance[];
-  benchmarks: BenchmarkResult[];
-  recent_runs: EvaluationRun[];
-  metrics: EvaluationMetric[];
-}
-
-export interface EvaluationFilters {
-  agent?: string;
-  benchmark?: string;
-  status?: EvalStatus;
-  date_from?: string;
-  date_to?: string;
+export interface EvaluationRunCreate {
+  suite_id: string;
+  project_id?: number | null;
+  execution_mode: ExecutionMode;
+  max_cases?: number;
 }
