@@ -4,9 +4,11 @@ import React from "react";
 import Link from "next/link";
 import { Card } from "@/components/ui/Card";
 import { usePrivacy } from "@/features/privacy/PrivacyContext";
+import { getPolicyGovernanceStatus } from "@/features/privacy/governance";
 
 export default function CookiePolicyPage() {
   const { openPreferences } = usePrivacy();
+  const governance = getPolicyGovernanceStatus();
 
   return (
     <div className="min-h-screen bg-[#101014] text-[#F5F5F5] py-12 px-4 sm:px-8">
@@ -34,9 +36,14 @@ export default function CookiePolicyPage() {
         {/* Header */}
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <div className="space-y-2">
-            <h1 className="text-3xl sm:text-4xl font-extrabold text-[#F8F8FC] tracking-tight">
-              Cookie Policy
-            </h1>
+            <div className="flex flex-col sm:flex-row sm:items-baseline sm:gap-4">
+              <h1 className="text-3xl sm:text-4xl font-extrabold text-[#F8F8FC] tracking-tight">
+                Cookie Policy
+              </h1>
+              <span className="text-xs font-mono text-[#A4A6B8]">
+                Effective Date: {governance.effectiveDate}
+              </span>
+            </div>
             <p className="text-sm text-[#A4A6B8]">
               Empirical inventory of cookies and browser storage technologies.
             </p>
@@ -50,27 +57,30 @@ export default function CookiePolicyPage() {
           </button>
         </div>
 
-        {/* Draft Notice Banner */}
-        <div
-          role="alert"
-          className="p-4 sm:p-5 rounded-xl border border-amber-500/30 bg-amber-500/10 text-amber-200 text-xs sm:text-sm space-y-1"
-        >
-          <div className="flex items-center gap-2 font-bold font-mono uppercase tracking-wider text-amber-300">
-            <svg className="w-4 h-4 shrink-0" fill="currentColor" viewBox="0 0 20 20">
-              <path
-                fillRule="evenodd"
-                d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z"
-                clipRule="evenodd"
-              />
-            </svg>
-            [DRAFT — PENDING OWNER REVIEW]
+        {/* Draft Notice Banner (strictly enforced until 3-gate owner sign-off) */}
+        {governance.isDraft && (
+          <div
+            role="alert"
+            className="p-4 sm:p-5 rounded-xl border border-amber-500/30 bg-amber-500/10 text-amber-200 text-xs sm:text-sm space-y-1"
+          >
+            <div className="flex items-center gap-2 font-bold font-mono uppercase tracking-wider text-amber-300">
+              <svg className="w-4 h-4 shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                <path
+                  fillRule="evenodd"
+                  d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z"
+                  clipRule="evenodd"
+                />
+              </svg>
+              {governance.statusLabel}
+            </div>
+            <p className="text-amber-200/90 leading-relaxed">
+              This document reflects verified static codebase analysis and documented infrastructure
+              for Orchestra. It must be formally reviewed and approved by the platform owner or legal
+              counsel before official publication. Automatic publication via environment variables alone
+              is strictly prohibited.
+            </p>
           </div>
-          <p className="text-amber-200/90 leading-relaxed">
-            This document reflects verified static codebase analysis and documented infrastructure
-            for Orchestra. It must be formally reviewed and approved by the platform owner or legal
-            counsel before official publication.
-          </p>
-        </div>
+        )}
 
         {/* Cookie Table */}
         <Card>
