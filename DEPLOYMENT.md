@@ -225,61 +225,143 @@ When deploying new versions of Orchestra:
 
 ---
 
-## 8. Rollback Procedures
+## 8. Production Docker Compose Topology (`docker-compose.prod.yml`)
 
-If a newly deployed release fails verification:
+For hardened production deployments, Orchestra provides `docker-compose.prod.yml`. This configuration enforces strict resource bounds, fail-closed TLS verification, and isolated networking:
 
-> [!WARNING]
-> Do NOT run generic `alembic downgrade -1` in production without verifying column drop safety. Downgrades that drop tables or columns destroy production document history and chat sessions.
+```bash
+docker compose -f docker-compose.prod.yml --env-file .env up -d --build
+```
 
-### Safe Rollback Steps:
-1. **Revert Application Images:**
-   Restart previous container image tags:
-   ```bash
-   docker compose --env-file .env up -d --no-deps backend frontend
-   ```
-2. **Restore Relational Database (if schema was altered destructively):**
-   ```bash
-   gunzip -c backup_orchestra_YYYYMMDD_HHMMSS.sql.gz | docker exec -i orchestra-postgres psql -U postgres -d orchestra
-   ```
-3. **Re-verify Health:**
-   ```bash
-   curl -f http://127.0.0.1:8080/health/ready
-   ```
+### Production Hardening Highlights:
+- **Standard Ports:** Binds `80:80` (HTTP) and `443:443` (HTTPS).
+- **Resource Constraints:**
+  - `backend`: 2.0 CPUs, 2048 MB RAM limit
+  - `frontend`: 2.0 CPUs, 2048 MB RAM limit
+  - `postgres`, `redis`, `qdrant`: 1024 MB RAM limit each
+  - `reverse-proxy`: 1.0 CPU, 512 MB RAM limit
+- **Volume Isolation:** Mounts `./nginx/certs/live` as a read-only volume (`:ro`) and `/var/www/certbot` for ACME challenges.
+- **Fail-Closed Container Startup:** The reverse proxy entrypoint verifies that trusted certificates exist and are non-empty before starting Nginx. If certificates are absent, the container terminates immediately with code 1.
 
 ---
 
-## 9. TLS Termination & External Ingress
+## 9. Real-Domain HTTPS, Fail-Closed TLS & Let's Encrypt Flow
 
-In production, terminate TLS at an external gateway (such as AWS ALB, Cloudflare, Traefik, or host Nginx/Caddy):
+Orchestra enforces strict HTTPS on production domains with automated ACME HTTP-01 pass-through.
 
-```
-[ Client Browser (HTTPS:443) ]
-             │
-             ▼
-[ Host Ingress / External Nginx (TLS Termination & Certbot) ]
-             │
-             ▼ (HTTP:8080)
-[ Orchestra Nginx Reverse Proxy ]
-```
-
-When terminating TLS externally:
-1. Ensure the external proxy forwards standard headers:
-   ```nginx
-   proxy_set_header X-Forwarded-Proto https;
-   proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-   proxy_set_header Host $host;
+### Automated Let's Encrypt / Certbot Setup:
+1. Ensure your DNS records (`A` / `CNAME`) point to the host server IP.
+2. Initialize Certbot challenge directory:
+   ```bash
+   mkdir -p ./nginx/certs/live ./certbot_webroot
    ```
-2. Set `COOKIE_SECURE=true` in `.env` so all session cookies carry the `Secure` attribute.
+3. Issue initial certificate via Certbot webroot:
+   ```bash
+   certbot certonly --webroot -w ./certbot_webroot \
+     -d yourdomain.com \
+     --email admin@yourdomain.com --agree-tos --non-interactive
+   ```
+4. Link or copy the issued certificates to `./nginx/certs/live/`:
+   ```bash
+   cp /etc/letsencrypt/live/yourdomain.com/fullchain.pem ./nginx/certs/live/
+   cp /etc/letsencrypt/live/yourdomain.com/privkey.pem ./nginx/certs/live/
+   chmod 600 ./nginx/certs/live/privkey.pem
+   ```
+5. Launch the production stack:
+   ```bash
+   docker compose -f docker-compose.prod.yml --env-file .env up -d
+   ```
+
+### Fail-Closed TLS Rules:
+- If trusted certificates are missing in production (`ENVIRONMENT=production`), Nginx will **FAIL TO START**.
+- **Self-signed development certificates are strictly quarantined to local development and will NEVER be loaded in production under any circumstances.**
+- Automated HTTP-to-HTTPS 301 redirection is enforced on Port 80 for all production traffic, exempting only `/.well-known/acme-challenge/`.
+- HSTS (`max-age=31536000; includeSubDomains`) is strictly applied to real HTTPS domains, excluding localhost and IP addresses.
 
 ---
 
-## 10. Operational Troubleshooting Guide
+## 10. Operational Monitoring & Observability Runbook
+
+### Health Probes
+- **Liveness:** `GET /health` returns `{"status":"healthy"}` (200 OK).
+- **Readiness:** `GET /health/ready` validates PostgreSQL connection pool, Redis ping, and Qdrant cluster availability. Returns 200 OK when all dependencies are green, or 503 Service Unavailable if any service degrades.
+
+### Internal Prometheus Scraping
+The Prometheus metrics endpoint (`/metrics`) is blocked from public access at the reverse proxy (returns `HTTP 404`). Internal Prometheus collectors must scrape the backend container directly within the private network:
+```bash
+# Internal network scrape target:
+http://orchestra-backend:8000/metrics
+```
+
+### Alert Thresholds & Operational SLOs
+| Metric | Threshold | Severity | Immediate Action |
+| :--- | :--- | :---: | :--- |
+| HTTP 5xx Error Rate | > 1.0% over 5 min | Critical | Inspect backend logs: `docker compose logs -f backend` |
+| P95 Request Latency | > 2.0s over 10 min | Warning | Inspect slow SQL queries and external LLM provider timeouts |
+| Redis Memory Usage | > 80% maxmemory | Warning | Check token blacklist TTL and rate limit eviction |
+| Host Disk Capacity | > 85% full | Critical | Check Qdrant snapshot storage and raw document storage |
+| NVIDIA NIM Availability | Repeated 503s | Warning | Fallback to independent BM25 engages automatically; check NVIDIA API status |
+
+---
+
+## 11. Human-Gated Destructive Operations Protocol
+
+> [!CAUTION]
+> **Strict Destructive Safety Mandate:**
+> All database downgrades, rollbacks, and restorations are **strictly human-gated**.
+> Automated, unattended, or pipeline-triggered downgrades (`alembic downgrade`, `psql < backup.sql`) are strictly PROHIBITED in deployment pipelines.
+
+If an operational recovery requiring schema or data modification is necessary, the operator must execute the following protocol in sequence:
+
+### Step 1: Pre-Flight Verified Checksummed Backup (Mandatory)
+Before executing any rollback or restore operation, create a timestamped backup and verify both file size and SHA-256 checksum:
+```bash
+# 1. Create transactional backup
+docker compose -f docker-compose.prod.yml exec -T postgres pg_dump -U postgres -d orchestra > pre_recovery_backup_$(date +%Y%m%d_%H%M%S).sql
+
+# 2. Verify backup is non-empty and generate SHA-256 checksum
+test -s pre_recovery_backup_*.sql && sha256sum pre_recovery_backup_*.sql
+```
+*If the backup file is empty (0 bytes) or fails checksum validation, STOP IMMEDIATELY. Do not proceed.*
+
+### Step 2: Migration Compatibility & Impact Analysis
+Review the specific downgrade or recovery operation:
+- Document all tables, columns, or foreign keys that will be altered or dropped.
+- Identify affected active user sessions or orphaned vector embeddings.
+- Ensure that document files in `orchestra_storage_data` remain synchronized with relational records.
+
+### Step 3: Explicit Human Operator Execution
+Only after Steps 1 and 2 are satisfied and documented, execute the targeted operation manually:
+
+```bash
+# Manual migration downgrade to specific revision:
+docker compose -f docker-compose.prod.yml exec backend alembic downgrade <target_revision>
+
+# OR manual point-in-time restore from verified backup:
+docker compose -f docker-compose.prod.yml exec -T postgres psql -U postgres -d orchestra < pre_recovery_backup_verified.sql
+```
+
+### Step 4: Post-Recovery Health & Integrity Verification
+```bash
+# Verify deep readiness probe
+curl -f https://yourdomain.com/health/ready
+
+# Run smoke test suite inside the container
+docker compose -f docker-compose.prod.yml run --rm backend python scripts/test_deployment_smoke.py
+```
+
+---
+
+## 12. Operational Troubleshooting Guide
 
 ### Issue: Backend reports `not_ready` with `database: unhealthy`
 - Inspect PostgreSQL logs: `docker compose logs --tail=50 postgres`
-- Test direct connection from backend: `docker exec -it orchestra-backend python -c "import psycopg; psycopg.connect('postgresql://postgres:PASSWORD@postgres:5432/orchestra')"`
-- Ensure `orchestra-postgres` health status is `healthy`.
+- Test direct connection from backend: `docker exec -it orchestra-backend-prod python -c "import psycopg; psycopg.connect('postgresql://postgres:PASSWORD@postgres:5432/orchestra')"`
+- Ensure `orchestra-postgres-prod` health status is `healthy`.
+
+### Issue: Reverse proxy exits immediately on boot in production
+- Check logs: `docker compose -f docker-compose.prod.yml logs reverse-proxy`
+- If error is `FATAL: Production mode requires valid trusted TLS certificates`: verify that `./nginx/certs/live/fullchain.pem` and `./nginx/certs/live/privkey.pem` exist, have permissions readable by user 101, and are non-empty.
 
 ### Issue: Document upload fails with `413 Request Entity Too Large`
 - The Nginx reverse proxy enforces a 12MB limit (`client_max_body_size 12M`) to accommodate 10MB file payloads plus boundary metadata.

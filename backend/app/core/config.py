@@ -202,6 +202,10 @@ class Settings(BaseSettings):
                 raise RuntimeError(
                     "EMBEDDING_API_KEY must be configured for openai_compatible provider in production"
                 )
+            if self.embedding_provider == "nvidia" and not (self.embedding_api_key or self.llm_api_key):
+                raise RuntimeError(
+                    "EMBEDDING_API_KEY (or LLM_API_KEY) must be configured for nvidia provider in production"
+                )
 
             if self.llm_provider == "test":
                 raise RuntimeError(
