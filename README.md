@@ -4,7 +4,18 @@ Orchestra is an enterprise multi-agent AI engineering platform unifying deep res
 
 ---
 
-## 1. Quickstart — Containerized Deployment
+## 1. Verified Public Production Deployment
+
+Orchestra is deployed and verified live in production on Microsoft Azure over browser-trusted HTTPS:
+
+- **Public Production Application:** [https://orchestra-sagar.indiasouthcentral.cloudapp.azure.com](https://orchestra-sagar.indiasouthcentral.cloudapp.azure.com)
+- **API Health Check:** `GET https://orchestra-sagar.indiasouthcentral.cloudapp.azure.com/health`
+- **Multi-Dependency Readiness Probe:** `GET https://orchestra-sagar.indiasouthcentral.cloudapp.azure.com/health/ready`
+- **TLS & Ingress Security:** TLSv1.3, Public Let's Encrypt Authority, Automated HTTP-to-HTTPS 301 Redirection, Strict-Transport-Security (HSTS), and isolated private internal datastores (PostgreSQL, Redis, Qdrant).
+
+---
+
+## 2. Quickstart — Containerized Deployment
 
 Orchestra deploys as a cohesive multi-container stack via Docker Compose, including PostgreSQL 16, Redis 7, Qdrant 1.12, FastAPI backend, Next.js frontend, and an unprivileged Nginx reverse proxy.
 
